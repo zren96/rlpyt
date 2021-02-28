@@ -72,7 +72,8 @@ class ParallelSamplerBase(BaseSampler):
             logger.log(f"Total parallel evaluation envs: {eval_n_envs}.")
             self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)
 
-        env = self.EnvCls(**self.env_kwargs)
+        # Choose first of the list of kwargs; does not matter which one
+        env = self.EnvCls(**self.env_kwargs[0])
         self._agent_init(agent, env, global_B=global_B,
             env_ranks=env_ranks)
         examples = self._build_buffers(env, bootstrap_value)
@@ -85,13 +86,13 @@ class ParallelSamplerBase(BaseSampler):
             for k, v in traj_info_kwargs.items():
                 setattr(self.TrajInfoCls, "_" + k, v)  # Avoid passing every init.
 
-        common_kwargs = self._assemble_common_kwargs(affinity, global_B)
+        common_kwargs = self._assemble_common_kwargs(affinity, n_envs_list, global_B)
         workers_kwargs = self._assemble_workers_kwargs(affinity, seed, n_envs_list)
 
         target = sampling_process if worker_process is None else worker_process
         self.workers = [mp.Process(target=target,
-            kwargs=dict(common_kwargs=common_kwargs, worker_kwargs=w_kwargs))
-            for w_kwargs in workers_kwargs]
+            kwargs=dict(common_kwargs=c_kwargs, worker_kwargs=w_kwargs))
+            for c_kwargs, w_kwargs in zip(common_kwargs, workers_kwargs)]
         for w in self.workers:
             w.start()
 
@@ -194,29 +195,33 @@ class ParallelSamplerBase(BaseSampler):
         self.eval_traj_infos_queue = mp.Queue()
         self.sync = AttrDict(stop_eval=mp.RawValue(ctypes.c_bool, False))
 
-    def _assemble_common_kwargs(self, affinity, global_B=1):
-        common_kwargs = dict(
-            EnvCls=self.EnvCls,
-            env_kwargs=self.env_kwargs,
-            agent=self.agent,
-            batch_T=self.batch_spec.T,
-            CollectorCls=self.CollectorCls,
-            TrajInfoCls=self.TrajInfoCls,
-            traj_infos_queue=self.traj_infos_queue,
-            ctrl=self.ctrl,
-            max_decorrelation_steps=self.max_decorrelation_steps,
-            torch_threads=affinity.get("worker_torch_threads", 1),
-            global_B=global_B,
-        )
-        if self.eval_n_envs > 0:
-            common_kwargs.update(dict(
-                eval_n_envs=self.eval_n_envs_per,
-                eval_CollectorCls=self.eval_CollectorCls,
-                eval_env_kwargs=self.eval_env_kwargs,
-                eval_max_T=self.eval_max_T,
-                eval_traj_infos_queue=self.eval_traj_infos_queue,
-                )
+    def _assemble_common_kwargs(self, affinity, n_envs_list, global_B=1):
+        common_kwargs = list()
+
+        for rank in range(len(n_envs_list)):
+            kwargs = dict(
+                EnvCls=self.EnvCls,
+                env_kwargs=self.env_kwargs[rank],
+                agent=self.agent,
+                batch_T=self.batch_spec.T,
+                CollectorCls=self.CollectorCls,
+                TrajInfoCls=self.TrajInfoCls,
+                traj_infos_queue=self.traj_infos_queue,
+                ctrl=self.ctrl,
+                max_decorrelation_steps=self.max_decorrelation_steps,
+                torch_threads=affinity.get("worker_torch_threads", 1),
+                global_B=global_B,
             )
+            if self.eval_n_envs > 0:
+                kwargs.update(dict(
+                    eval_n_envs=self.eval_n_envs_per,
+                    eval_CollectorCls=self.eval_CollectorCls,
+                    eval_env_kwargs=self.eval_env_kwargs,
+                    eval_max_T=self.eval_max_T,
+                    eval_traj_infos_queue=self.eval_traj_infos_queue,
+                    )
+                )
+            common_kwargs.append(kwargs)
         return common_kwargs
 
     def _assemble_workers_kwargs(self, affinity, seed, n_envs_list):
