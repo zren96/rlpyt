@@ -176,23 +176,42 @@ class CpuEvalCollector(BaseEvalCollector):
         obs_pyt, act_pyt, rew_pyt = torchify_buffer((observation, action, reward))
         self.agent.reset()
         self.agent.eval_mode(itr)
-        for t in range(self.max_T):
+
+        #* Modifying the eval logic here: always return traj for each env of a worker
+        # obs_pyt: num_eval_env_per x obs_dim(3); act_pyt: num_eval_env_per x act_dim(1); rew_pyt: num_eval_env_per
+        envs_done_flag = np.zeros((len(self.envs)))
+        for t in range(self.max_T): # max_T=100, not eval_max_steps
             act_pyt, agent_info = self.agent.step(obs_pyt, act_pyt, rew_pyt)
             action = numpify_buffer(act_pyt)
+            
+            # Go through each env in a worker
             for b, env in enumerate(self.envs):
                 o, r, d, env_info = env.step(action[b])
                 traj_infos[b].step(observation[b], action[b], r, d,
                     agent_info[b], env_info)
+                
+                # Right now this one is never activated since our custom env (pendulum) does not return any info at each step
                 if getattr(env_info, "traj_done", d):
                     self.traj_infos_queue.put(traj_infos[b].terminate(o))
                     traj_infos[b] = self.TrajInfoCls()
                     o = env.reset()
+                    envs_done_flag[b] = 1
+
+                # Right now this one is never activated since our custom env (pendulum) does not say done                
                 if d:
                     action[b] = 0  # Next prev_action.
                     r = 0
-                    self.agent.reset_one(idx=b)
+                    self.agent.reset_one(idx=b) # this does not do anything right now
+                    envs_done_flag[b] = 1
+
                 observation[b] = o
                 reward[b] = r
             if self.sync.stop_eval.value:
                 break
+
+        # Regardless, add to queue TODO: need to tell traj_info the global index of envs (like which image was used)
+        for b in range(len(self.envs)):
+            if envs_done_flag[b] < 1e-4:
+                self.traj_infos_queue.put(traj_infos[b].terminate(o))
+
         self.traj_infos_queue.put(None)  # End sentinel.

@@ -72,7 +72,7 @@ class ParallelSamplerBase(BaseSampler):
             self.eval_n_envs_per = max(1, self.eval_n_envs // n_worker)
             self.eval_n_envs = eval_n_envs = self.eval_n_envs_per * n_worker
             logger.log(f"Total parallel evaluation envs: {eval_n_envs}.")
-            self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)
+            self.eval_max_T = eval_max_T = int(self.eval_max_steps // eval_n_envs)  # split evenly for all envs
 
         # Choose first of the list of kwargs; does not matter which one
         env = self.EnvCls(**self.env_kwargs[0])
