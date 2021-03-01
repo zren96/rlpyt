@@ -47,7 +47,7 @@ def sampling_process(common_kwargs, worker_kwargs):
     """
     c, w = AttrDict(**common_kwargs), AttrDict(**worker_kwargs)
     initialize_worker(w.rank, w.seed, w.cpus, c.torch_threads)
-    envs = [c.EnvCls(**c.env_kwargs) for _ in range(w.n_envs)]
+    envs = [c.EnvCls(**c.env_kwargs[env_ind]) for env_ind in range(w.n_envs)]
     set_envs_seeds(envs, w.seed)
 
     collector = c.CollectorCls(
@@ -65,8 +65,9 @@ def sampling_process(common_kwargs, worker_kwargs):
     agent_inputs, traj_infos = collector.start_envs(c.max_decorrelation_steps)
     collector.start_agent()
 
+    # TODO: distribute assigned eval_env_kwargs
     if c.get("eval_n_envs", 0) > 0:
-        eval_envs = [c.EnvCls(**c.eval_env_kwargs) for _ in range(c.eval_n_envs)]
+        eval_envs = [c.EnvCls(**c.eval_env_kwargs[env_ind]) for env_ind in range(c.eval_n_envs)]
         set_envs_seeds(eval_envs, w.seed)
         eval_collector = c.eval_CollectorCls(
             rank=w.rank,

@@ -2,6 +2,7 @@
 import multiprocessing as mp
 import ctypes
 import time
+import numpy as np
 
 from rlpyt.samplers.base import BaseSampler
 from rlpyt.samplers.buffer import build_samples_buffer
@@ -58,7 +59,7 @@ class ParallelSamplerBase(BaseSampler):
             actual_eval_n_envs`), is not large relative to the max episode
             length.
         """
-        n_envs_list = self._get_n_envs_list(affinity=affinity)
+        n_envs_list = self._get_n_envs_list(affinity=affinity)  # number of envs for each worker
         self.n_worker = n_worker = len(n_envs_list)
         B = self.batch_spec.B
         global_B = B * world_size
@@ -66,6 +67,7 @@ class ParallelSamplerBase(BaseSampler):
         self.world_size = world_size
         self.rank = rank
 
+        #* This means if eval_n_envs < n_worker, each worker still runs at least one eval env; right now we set the redundant workers to use the last set of eval_env_kwargs. See the warning above.
         if self.eval_n_envs > 0:
             self.eval_n_envs_per = max(1, self.eval_n_envs // n_worker)
             self.eval_n_envs = eval_n_envs = self.eval_n_envs_per * n_worker
@@ -199,9 +201,10 @@ class ParallelSamplerBase(BaseSampler):
         common_kwargs = list()
 
         for rank in range(len(n_envs_list)):
+            env_ranks = range(n_envs_list[0]*rank, n_envs_list[0]*(rank+1))# split all kwargs for each worker; assume each worker has the same number of envs assigned
             kwargs = dict(
                 EnvCls=self.EnvCls,
-                env_kwargs=self.env_kwargs[rank],
+                env_kwargs=[self.env_kwargs[env_ind] for env_ind in env_ranks],
                 agent=self.agent,
                 batch_T=self.batch_spec.T,
                 CollectorCls=self.CollectorCls,
@@ -213,10 +216,11 @@ class ParallelSamplerBase(BaseSampler):
                 global_B=global_B,
             )
             if self.eval_n_envs > 0:
+                eval_env_ranks = [*range(self.eval_n_envs_per*rank, self.eval_n_envs_per*(rank+1))]    # split all eval kwargs for each worker
                 kwargs.update(dict(
                     eval_n_envs=self.eval_n_envs_per,
                     eval_CollectorCls=self.eval_CollectorCls,
-                    eval_env_kwargs=self.eval_env_kwargs,
+                    eval_env_kwargs=[self.eval_env_kwargs[env_ind] for env_ind in eval_env_ranks],
                     eval_max_T=self.eval_max_T,
                     eval_traj_infos_queue=self.eval_traj_infos_queue,
                     )

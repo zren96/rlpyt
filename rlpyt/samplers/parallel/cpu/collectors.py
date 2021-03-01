@@ -30,7 +30,7 @@ class CpuResetCollector(DecorrelatingStartCollector):
         observation, action, reward = agent_inputs
         obs_pyt, act_pyt, rew_pyt = torchify_buffer(agent_inputs)
         agent_buf.prev_action[0] = action  # Leading prev_action.
-        env_buf.prev_reward[0] = reward
+        env_buf.prev_reward[0] = reward[:,np.newaxis]   #!
         self.agent.sample_mode(itr)
         for t in range(self.batch_T):
             env_buf.observation[t] = observation
@@ -54,7 +54,7 @@ class CpuResetCollector(DecorrelatingStartCollector):
                 if env_info:
                     env_buf.env_info[t, b] = env_info
             agent_buf.action[t] = action
-            env_buf.reward[t] = reward
+            env_buf.reward[t] = reward[:,np.newaxis]   #!
             if agent_info:
                 agent_buf.agent_info[t] = agent_info
 

@@ -48,6 +48,7 @@ class PolicyGradientAlgo(RlAlgorithm):
         """
         reward, done, value, bv = (samples.env.reward, samples.env.done,
             samples.agent.agent_info.value, samples.agent.bootstrap_value)
+        reward = reward.squeeze(-1) #! the additional dimension at the end was causing issue
         done = done.type(reward.dtype)
 
         if self.gae_lambda == 1:  # GAE reduces to empirical discounted.
