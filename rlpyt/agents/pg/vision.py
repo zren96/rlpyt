@@ -2,7 +2,7 @@
 
 from rlpyt.agents.pg.gaussian import (GaussianPgAgent,
     RecurrentGaussianPgAgent, AlternatingRecurrentGaussianPgAgent)
-from rlpyt.models.pg.vision_model import VisionModel
+from rlpyt.models.pg.vision_model import VisionModel, VisionLSTMModel
 
 
 class VisionMixin:
@@ -22,6 +22,12 @@ class VisionMixin:
     def data_parallel(self, *args, **kwargs):
         super().data_parallel(*args, **kwargs)
         self._ddp = True
+
+
+class VisionLSTMAgent(VisionMixin, RecurrentGaussianPgAgent):
+
+    def __init__(self, ModelCls=VisionLSTMModel, **kwargs):
+        super().__init__(ModelCls=ModelCls, **kwargs)
 
 
 class VisionAgent(VisionMixin, GaussianPgAgent):

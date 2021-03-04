@@ -24,19 +24,19 @@ class PPO(PolicyGradientAlgo):
     def __init__(
             self,
             discount=0.99,
-            learning_rate=0.001,
+            learning_rate=3e-4,
             value_loss_coeff=1.,
-            entropy_loss_coeff=0.01,
+            entropy_loss_coeff=0.0,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
-            clip_grad_norm=1.,
+            clip_grad_norm=1e6,
             initial_optim_state_dict=None,
-            gae_lambda=1,
-            minibatches=4,
-            epochs=4,
-            ratio_clip=0.1,
+            gae_lambda=0.95,
+            minibatches=32,
+            epochs=10,
+            ratio_clip=0.2,
             linear_lr_schedule=True,
-            normalize_advantage=False,
+            normalize_advantage=True,
             ):
         """Saves input settings."""
         if optim_kwargs is None:
