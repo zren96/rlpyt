@@ -16,6 +16,7 @@ import json
 import pickle
 import base64
 import torch
+import glob
 
 _prefixes = []
 _prefix_str = ''
@@ -329,28 +330,43 @@ def pop_prefix():
     _prefix_str = ''.join(_prefixes)
 
 
-def save_itr_params(itr, params):
+def save_itr_params(itr, params, save_cur):
     if _snapshot_dir:
-        if _snapshot_mode == 'all':
-            file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
-        elif _snapshot_mode == 'last':
-            # override previous params
-            file_name = osp.join(get_snapshot_dir(), 'params.pkl')
-        elif _snapshot_mode == "gap":
-            if itr == 0 or (itr + 1) % _snapshot_gap == 0:
-                file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
-            else:
-                return
-        elif _snapshot_mode == "last+gap":
-            if itr == 0 or (itr + 1) % _snapshot_gap == 0:
-                file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
-                torch.save(params, file_name)
-            file_name = osp.join(get_snapshot_dir(), 'params.pkl')
-        elif _snapshot_mode == 'none':
-            return
-        else:
-            raise NotImplementedError
-        torch.save(params, file_name)
+        # Always save most recent one
+        prev_last_file = glob.glob(get_snapshot_dir()+'/*_last_params.pkl')
+        if len(prev_last_file) > 0:
+            os.remove(prev_last_file[0])
+        last_file_name = osp.join(get_snapshot_dir(), 'itr_%d_last_params.pkl' % itr)
+        torch.save(params, last_file_name)
+
+        # Save best one
+        if save_cur:
+            prev_best_file = glob.glob(get_snapshot_dir()+'/*_best_params.pkl')
+            if len(prev_best_file) > 0:
+                os.remove(prev_best_file[0])
+            best_file_name = osp.join(get_snapshot_dir(), 'itr_%d_best_params.pkl' % itr)
+            torch.save(params, best_file_name)
+
+        # if _snapshot_mode == 'all': # never used
+        #     file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
+        # elif _snapshot_mode == 'last':
+        #     # override previous params
+        #     file_name = osp.join(get_snapshot_dir(), 'params.pkl')
+        # # elif _snapshot_mode == "gap":
+        # #     if itr == 0 or (itr + 1) % _snapshot_gap == 0:
+        # #         file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
+        # #     else:
+        # #         return
+        # # elif _snapshot_mode == "last+gap":
+        # #     if itr == 0 or (itr + 1) % _snapshot_gap == 0:
+        # #         file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
+        # #         torch.save(params, file_name)
+        # #     file_name = osp.join(get_snapshot_dir(), 'params.pkl')
+        # elif _snapshot_mode == 'none':
+        #     return
+        # else:
+        #     raise NotImplementedError
+        # torch.save(params, file_name)
 
 
 def log_parameters(log_file, args, classes):

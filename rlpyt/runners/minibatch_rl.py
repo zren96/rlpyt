@@ -4,6 +4,7 @@ import time
 import torch
 import math
 from collections import deque
+import numpy as np
 
 from rlpyt.runners.base import BaseRunner
 from rlpyt.utils.quick_args import save__init__args
@@ -144,14 +145,14 @@ class MinibatchRlBase(BaseRunner):
             optimizer_state_dict=self.algo.optim_state_dict(),
         )
 
-    def save_itr_snapshot(self, itr):
+    def save_itr_snapshot(self, itr, save_cur):
         """
         Calls the logger to save training checkpoint/snapshot (logger itself
         may or may not save, depending on mode selected).
         """
         logger.log("saving snapshot...")
         params = self.get_itr_snapshot(itr)
-        logger.save_itr_params(itr, params)
+        logger.save_itr_params(itr, params, save_cur)
         logger.log("saved")
 
     def store_diagnostics(self, itr, traj_infos, opt_info):
@@ -165,14 +166,14 @@ class MinibatchRlBase(BaseRunner):
             v.extend(new_v if isinstance(new_v, list) else [new_v])
         self.pbar.update((itr + 1) % self.log_interval_itrs)
 
-    def log_diagnostics(self, itr, traj_infos=None, eval_time=0, prefix='Diagnostics/'):
+    def log_diagnostics(self, itr, traj_infos=None, eval_time=0, save_cur=False, prefix='Diagnostics/'):
         """
         Write diagnostics (including stored ones) to csv via the logger.
         """
         if itr > 0:
             self.pbar.stop()
         if itr >= self.min_itr_learn - 1:
-            self.save_itr_snapshot(itr)
+            self.save_itr_snapshot(itr, save_cur)
         new_time = time.time()
         self._cum_time = new_time - self._start_time
         train_time_elapsed = new_time - self._last_time - eval_time
@@ -298,6 +299,8 @@ class MinibatchRlEval(MinibatchRlBase):
         ``algo.optimize_agent()``.  Pauses to evaluate the agent at the
         specified log interval.
         """
+        best_eval_reward_avg = -1e5
+
         n_itr = self.startup()
         with logger.prefix(f"itr #0 "):
             eval_traj_infos, eval_time = self.evaluate_agent(0)
@@ -312,8 +315,25 @@ class MinibatchRlEval(MinibatchRlBase):
                 self.store_diagnostics(itr, traj_infos, opt_info)
                 if (itr + 1) % self.log_interval_itrs == 0:
                     eval_traj_infos, eval_time = self.evaluate_agent(itr)
-                    self.log_diagnostics(itr, eval_traj_infos, eval_time)
+                    eval_reward_avg = self.get_eval_reward(eval_traj_infos)
+                    
+                    # Determine if saving current snapshot
+                    if eval_reward_avg > best_eval_reward_avg:
+                        best_eval_reward_avg = eval_reward_avg
+                        save_cur = True
+                    else:
+                        save_cur = False
+                    self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
         self.shutdown()
+
+    def get_eval_reward(self, traj_infos):
+        """
+        This is for determining when to save snapshot
+        """
+        for k in traj_infos[0]:
+            if k == 'Return':   # 'Length', 'Return', 'NonzeroRewards', 'DiscountedReturn', '_cur_discount'
+                all = [info[k] for info in traj_infos]
+                return np.mean(all)
 
     def evaluate_agent(self, itr):
         """
@@ -338,7 +358,7 @@ class MinibatchRlEval(MinibatchRlBase):
         super().initialize_logging()
         self._cum_eval_time = 0
 
-    def log_diagnostics(self, itr, eval_traj_infos, eval_time, prefix='Diagnostics/'):
+    def log_diagnostics(self, itr, eval_traj_infos, eval_time, save_cur=False, prefix='Diagnostics/'):
         if not eval_traj_infos:
             logger.log("WARNING: had no complete trajectories in eval.")
         steps_in_eval = sum([info["Length"] for info in eval_traj_infos])
@@ -347,4 +367,4 @@ class MinibatchRlEval(MinibatchRlBase):
             logger.record_tabular('TrajsInEval', len(eval_traj_infos))
             self._cum_eval_time += eval_time
             logger.record_tabular('CumEvalTime', self._cum_eval_time)
-        super().log_diagnostics(itr, eval_traj_infos, eval_time, prefix=prefix)
+        super().log_diagnostics(itr, eval_traj_infos, eval_time, save_cur, prefix=prefix)
