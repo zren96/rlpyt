@@ -47,6 +47,7 @@ class SAC(RlAlgorithm):
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
             initial_optim_state_dict=None,  # for all of them.
+            initial_replay_buffer_dict=None,
             action_prior="uniform",  # or "gaussian"
             reward_scale=1,
             target_entropy="auto",  # "auto", float, or None
@@ -149,6 +150,7 @@ class SAC(RlAlgorithm):
             size=self.replay_size,
             B=batch_spec.B,
             n_step_return=self.n_step_return,
+            initial_replay_buffer_dict=self.initial_replay_buffer_dict,
         )
         if self.ReplayBufferCls is not None:
             ReplayCls = self.ReplayBufferCls
@@ -328,3 +330,6 @@ class SAC(RlAlgorithm):
         with torch.no_grad():
             self._log_alpha[:] = state_dict["log_alpha"]
             self._alpha = torch.exp(self._log_alpha.detach())
+
+    def replay_buffer_dict(self):
+        return dict(buffer=self.replay_buffer.samples)
