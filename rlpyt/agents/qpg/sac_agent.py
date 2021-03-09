@@ -33,7 +33,7 @@ class SacAgent(BaseAgent):
             q_model_kwargs=None,
             v_model_kwargs=None,
             initial_model_state_dict=None,  # All models.
-            action_squash=1.,  # Max magnitude (or None).
+            action_squash=2.,  # Max magnitude (or None).
             pretrain_std=0.75,  # With squash 0.75 is near uniform.
             ):
         """Saves input arguments; network defaults stored within."""
