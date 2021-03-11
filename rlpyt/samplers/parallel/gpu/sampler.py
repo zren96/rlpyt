@@ -102,7 +102,8 @@ class GpuSamplerBase(ParallelSamplerBase):
 
     def _assemble_common_kwargs(self, *args, **kwargs):
         common_kwargs = super()._assemble_common_kwargs(*args, **kwargs)
-        common_kwargs["agent"] = None  # Remove.
+        for kwargs in common_kwargs:
+            kwargs["agent"] = None  # Remove.
         return common_kwargs
 
     def _assemble_workers_kwargs(self, affinity, seed, n_envs_list):
