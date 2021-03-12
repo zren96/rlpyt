@@ -5,7 +5,8 @@ import torch
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
 from rlpyt.models.mlp import MlpModel
-from rlpyt.models.conv2d import Conv2dHeadModel
+from rlpyt.models.conv2d import Conv2dHeadModel, Conv2dModel
+from rlpyt.utils.spatial_softmax import SpatialSoftmax
 
 RnnState = namedarraytuple("RnnState", ["h", "c"])  # For downstream namedarraytuples to work
 
@@ -108,6 +109,63 @@ class PiConvDoubleModel(torch.nn.Module):
             self,
             observation_shape,
             action_size,
+            hidden_sizes=[64, 64],  # mlp
+            channels=[4, 8, 16],
+            kernel_sizes=[5, 3, 3],
+            strides=[1, 1, 1],
+            paddings=[2, 1, 1],
+            use_maxpool=False,
+            ):
+        # To keep image dimension, use stride=1, kernel=2*paddings+1
+        super().__init__()
+        self._action_size = action_size
+
+        self.conv = Conv2dModel(    # keep image dim
+            # image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
+            in_channels=3,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            use_maxpool=use_maxpool,
+        )   # image -> conv (ReLU) (-> linear (fc_sizes) - > ReLU)
+
+        # Spatial softmax, output mum_channel x 2d pos
+        self.sm = SpatialSoftmax(height=observation_shape[1], 
+                                width=observation_shape[2], 
+                                channel=channels[-1])
+
+        self.mlp = MlpModel(
+            input_size=channels[-1]*2*2,    # 2d, and then two images
+            hidden_sizes=hidden_sizes,
+            output_size=action_size * 2,
+        )
+        # print('Num of conv parameters: %d' % sum(p.numel() for p in self.conv.parameters() if p.requires_grad))
+        # print('Num of mlp parameters: %d' % sum(p.numel() for p in self.mlp.parameters() if p.requires_grad))
+        # while 1:
+        #     continue
+
+    def forward(self, image, prev_action, prev_reward):
+        lead_dim, T, B, img_shape = infer_leading_dims(image, 3)
+        image = image.view(T * B, *img_shape)
+        image_cur = image[:,:3,:,:]
+        image_prev = image[:,3:,:,:]
+
+        fc_cur_out = self.sm(self.conv(image_cur))
+        fc_prev_out = self.sm(self.conv(image_prev))
+        fc_out = torch.cat((fc_cur_out, fc_prev_out), dim=-1)
+        output = self.mlp(fc_out.view(T * B, -1))
+        mu, log_std = output[:, :self._action_size], output[:, self._action_size:]
+        mu, log_std = restore_leading_dims((mu, log_std), lead_dim, T, B)
+        return mu, log_std
+
+class PiConvDeterministicDoubleModel(torch.nn.Module):
+    """Action distrubition model for SAC Vision."""
+
+    def __init__(
+            self,
+            observation_shape,
+            action_size,
             hidden_sizes=[64,64],  # mlp after lstm
             fc_sizes=64, # Between conv and lstm
             channels=None,
@@ -115,9 +173,10 @@ class PiConvDoubleModel(torch.nn.Module):
             strides=None,
             paddings=None,
             use_maxpool=False,
+            output_max=2,
             ):
         super().__init__()
-        self._action_size = action_size
+        self._output_max = output_max
 
         self.conv = Conv2dHeadModel(
             image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
@@ -132,7 +191,7 @@ class PiConvDoubleModel(torch.nn.Module):
         self.mlp = MlpModel(
             input_size=self.conv.output_size*2,
             hidden_sizes=hidden_sizes,
-            output_size=action_size * 2,
+            output_size=action_size,
         )
         # print('Num of conv parameters: %d' % sum(p.numel() for p in self.conv.parameters() if p.requires_grad))
         # print('Num of mlp parameters: %d' % sum(p.numel() for p in self.mlp.parameters() if p.requires_grad))
@@ -148,11 +207,9 @@ class PiConvDoubleModel(torch.nn.Module):
         fc_cur_out = self.conv(image_cur)
         fc_prev_out = self.conv(image_prev)
         fc_out = torch.cat((fc_cur_out, fc_prev_out), dim=-1)
-        output = self.mlp(fc_out.view(T * B, -1))
-        mu, log_std = output[:, :self._action_size], output[:, self._action_size:]
-        mu, log_std = restore_leading_dims((mu, log_std), lead_dim, T, B)
-        return mu, log_std
-
+        mu = self._output_max * torch.tanh(self.mlp(fc_out.view(T * B, -1)))
+        mu = restore_leading_dims(mu, lead_dim, T, B)
+        return mu
 
 class QConvDoubleModel(torch.nn.Module):
     """Q portion of the model for SAC Vision. Use single-branch for now (LSTM takes obs, last_action, and action). https://github.com/quantumiracle/Popular-RL-Algorithms/blob/master/common/value_networks.py"""
@@ -161,29 +218,34 @@ class QConvDoubleModel(torch.nn.Module):
             self,
             observation_shape,
             action_size,
-            hidden_sizes=[64,64],  # mlp after lstm
-            fc_sizes=64, # Between conv and lstm
-            channels=None,
-            kernel_sizes=None,
-            strides=None,
-            paddings=None,
+            hidden_sizes=[64, 64],  # mlp
+            channels=[4, 8, 16],
+            kernel_sizes=[5, 3, 3],
+            strides=[1, 1, 1],
+            paddings=[2, 1, 1],
             use_maxpool=False,
             ):
         """Instantiate neural net according to inputs."""
         super().__init__()
         self._obs_ndim = len(observation_shape)
 
-        self.conv = Conv2dHeadModel(
-            image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
-            channels=channels or [4, 8],
-            kernel_sizes=kernel_sizes or [8, 4],
-            strides=strides or [4, 2],
-            paddings=paddings or [0, 1],
+        self.conv = Conv2dModel(    # keep image dim
+            # image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
+            in_channels=3,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
             use_maxpool=use_maxpool,
-            hidden_sizes=fc_sizes,  # Applies nonlinearity at end.
-        )   # image -> conv (ReLU) -> linear (fc_sizes) - > ReLU
+        )   # image -> conv (ReLU) (-> linear (fc_sizes) - > ReLU)
+
+        # Spatial softmax, output mum_channel x 2d pos
+        self.sm = SpatialSoftmax(height=observation_shape[1], 
+                                width=observation_shape[2], 
+                                channel=channels[-1])
+
         self.mlp = MlpModel(
-            input_size=self.conv.output_size*2+action_size,
+            input_size=channels[-1]*2*2+action_size,
             hidden_sizes=hidden_sizes,
             output_size=1,
         )
@@ -195,8 +257,8 @@ class QConvDoubleModel(torch.nn.Module):
         image_cur = image[:,:3,:,:]
         image_prev = image[:,3:,:,:]
 
-        fc_cur_out = self.conv(image_cur)
-        fc_prev_out = self.conv(image_prev)
+        fc_cur_out = self.sm(self.conv(image_cur))
+        fc_prev_out = self.sm(self.conv(image_prev))
         fc_out = torch.cat((fc_cur_out, fc_prev_out), dim=-1)
         q_input = torch.cat(
             [fc_out.view(T * B, -1), 
