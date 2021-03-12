@@ -116,8 +116,8 @@ class VisionModel(torch.nn.Module):
         """Instantiate neural net module according to inputs."""
         super().__init__()
         self.conv = Conv2dHeadModel(
-            image_shape=observation_shape,
-            channels=channels or [8, 16],
+            image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
+            channels=channels or [4, 8],
             kernel_sizes=kernel_sizes or [8, 4],
             strides=strides or [4, 2],
             paddings=paddings or [0, 1],
@@ -125,7 +125,7 @@ class VisionModel(torch.nn.Module):
             hidden_sizes=fc_sizes,  # Applies nonlinearity at end.
         )
         mu_mlp = MlpModel(
-            input_size=self.conv.output_size,
+            input_size=self.conv.output_size*2,
             hidden_sizes=fc_sizes,
             output_size=action_size,
             nonlinearity=hidden_nonlinearity,
@@ -138,7 +138,7 @@ class VisionModel(torch.nn.Module):
         else:
             self.mu = mu_mlp
         self.v = MlpModel(
-            input_size=self.conv.output_size,
+            input_size=self.conv.output_size*2,
             hidden_sizes=fc_sizes,
             output_size=1,
             nonlinearity=hidden_nonlinearity,
@@ -163,7 +163,14 @@ class VisionModel(torch.nn.Module):
         # Infer (presence of) leading dimensions: [T,B], [B], or [].
         lead_dim, T, B, img_shape = infer_leading_dims(image, 3)
 
-        fc_out = self.conv(image.view(T * B, *img_shape))
+        image = image.view(T * B, *img_shape)
+        image_cur = image[:,:3,:,:]
+        image_prev = image[:,3:,:,:]
+
+        fc_cur_out = self.conv(image_cur)
+        fc_prev_out = self.conv(image_prev)
+        fc_out = torch.cat((fc_cur_out, fc_prev_out), dim=-1)
+
         mu = self.mu(fc_out)
         v = self.v(fc_out).squeeze(-1)
         log_std = self.log_std.repeat(T * B, 1)
