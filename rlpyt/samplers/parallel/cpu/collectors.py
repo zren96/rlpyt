@@ -206,7 +206,7 @@ class CpuEvalCollector(BaseEvalCollector):
                     envs_done_flag[b] = 1
 
                 # Save saliency
-                if t == 10 and b == 0:
+                if t == 10 and b == 0 and self.agent.saliency_dir is not None:
                     saliency(img=o, model=self.agent.model, save_path=self.agent.saliency_dir+str(itr)+'.png')
 
                 observation[b] = o
