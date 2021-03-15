@@ -20,7 +20,6 @@ class Conv2dModel(torch.nn.Module):
             paddings=None,
             nonlinearity=torch.nn.ReLU,  # Module, not Functional.
             use_maxpool=False,  # if True: convs use stride 1, maxpool downsample.
-            head_sizes=None,  # Put an MLP head on top.
             ):
         super().__init__()
         if paddings is None:
@@ -33,11 +32,12 @@ class Conv2dModel(torch.nn.Module):
             strides = ones
         else:
             maxp_strides = ones
-        conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
+
+        self.conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
             kernel_size=k, stride=s, padding=p) for (ic, oc, k, s, p) in
             zip(in_channels, channels, kernel_sizes, strides, paddings)]
         sequence = list()
-        for conv_layer, maxp_stride in zip(conv_layers, maxp_strides):
+        for conv_layer, maxp_stride in zip(self.conv_layers, maxp_strides):
             sequence.extend([conv_layer, nonlinearity()])
             if maxp_stride > 1:
                 sequence.append(torch.nn.MaxPool2d(maxp_stride))  # No padding.

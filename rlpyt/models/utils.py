@@ -63,3 +63,8 @@ def strip_ddp_state_dict(state_dict):
         key = k[7:] if k[:7] == "module." else k
         clean_state_dict[key] = v
     return clean_state_dict
+
+def tie_weights(src, trg):
+    assert type(src) == type(trg)
+    trg.weight = src.weight
+    trg.bias = src.bias

@@ -8,8 +8,6 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.replays.non_sequence.uniform import (UniformReplayBuffer,
     AsyncUniformReplayBuffer)
-from rlpyt.replays.non_sequence.time_limit import (TlUniformReplayBuffer,
-    AsyncTlUniformReplayBuffer)
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.distributions.gaussian import Gaussian
@@ -19,8 +17,8 @@ from rlpyt.algos.utils import valid_from_done
 
 
 OptInfo = namedtuple("OptInfo",
-    ["q1Loss", "q2Loss", "piLoss",
-    "q1GradNorm", "q2GradNorm", "piGradNorm",
+    ["qLoss", "piLoss",
+    "qGradNorm", "piGradNorm",
     "q1", "q2", "piMu", "piLogStd", "qMeanDiff", "alpha"])
 SamplesToBuffer = namedarraytuple("SamplesToBuffer",
     ["observation", "action", "reward", "done"])
@@ -28,8 +26,9 @@ SamplesToBufferTl = namedarraytuple("SamplesToBufferTl",
     SamplesToBuffer._fields + ("timeout",))
 
 
-class SAC(RlAlgorithm):
+class SACNew(RlAlgorithm):
     """Soft actor critic algorithm, training from a replay buffer."""
+    # Assume adaptive alpha; no bootstrap limit; no policy_output_regularization; reparameterize=True
 
     opt_info_fields = tuple(f for f in OptInfo._fields)  # copy
 
@@ -43,7 +42,6 @@ class SAC(RlAlgorithm):
             target_update_tau=0.005,  # tau=1 for hard update.
             target_update_interval=1,  # 1000 for hard update, 1 for soft.
             learning_rate=3e-4,
-            fixed_alpha=None, # None for adaptive alpha, float for any fixed value
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
             initial_optim_state_dict=None,  # for all of them.
@@ -51,12 +49,9 @@ class SAC(RlAlgorithm):
             action_prior="uniform",  # or "gaussian"
             reward_scale=1,
             target_entropy="auto",  # "auto", float, or None
-            reparameterize=True,
             clip_grad_norm=1e9,
-            # policy_output_regularization=0.001,
             n_step_return=1,
             updates_per_sync=1,  # For async mode only.
-            bootstrap_timelimit=False,  #!
             ReplayBufferCls=None,  # Leave None to select by above options.
             ):
         """Save input arguments."""
@@ -107,19 +102,14 @@ class SAC(RlAlgorithm):
         self.rank = rank
         self.pi_optimizer = self.OptimCls(self.agent.pi_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
-        self.q1_optimizer = self.OptimCls(self.agent.q1_parameters(),
+        self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
-        self.q2_optimizer = self.OptimCls(self.agent.q2_parameters(),
+
+        self._log_alpha = torch.zeros(1, requires_grad=True)
+        self._alpha = torch.exp(self._log_alpha.detach())
+        self.alpha_optimizer = self.OptimCls((self._log_alpha,),
             lr=self.learning_rate, **self.optim_kwargs)
-        if self.fixed_alpha is None:
-            self._log_alpha = torch.zeros(1, requires_grad=True)
-            self._alpha = torch.exp(self._log_alpha.detach())
-            self.alpha_optimizer = self.OptimCls((self._log_alpha,),
-                lr=self.learning_rate, **self.optim_kwargs)
-        else:
-            self._log_alpha = torch.tensor([np.log(self.fixed_alpha)])
-            self._alpha = torch.tensor([self.fixed_alpha])
-            self.alpha_optimizer = None
+
         if self.target_entropy == "auto":
             self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
         if self.initial_optim_state_dict is not None:
@@ -139,12 +129,7 @@ class SAC(RlAlgorithm):
             reward=examples["reward"],
             done=examples["done"],
         )
-        if not self.bootstrap_timelimit:
-            ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
-        else:
-            example_to_buffer = SamplesToBufferTl(*example_to_buffer,
-                timeout=examples["env_info"].timeout)
-            ReplayCls = AsyncTlUniformReplayBuffer if async_ else TlUniformReplayBuffer
+        ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
         replay_kwargs = dict(
             example=example_to_buffer,
             size=self.replay_size,
@@ -173,10 +158,65 @@ class SAC(RlAlgorithm):
         opt_info = OptInfo(*([] for _ in range(len(OptInfo._fields))))
         if itr < self.min_itr_learn:
             return opt_info
+
         for _ in range(self.updates_per_optimize):
-            samples_from_replay = self.replay_buffer.sample_batch(self.batch_size)
-            losses, values = self.loss(samples_from_replay)
-            q1_loss, q2_loss, pi_loss, alpha_loss = losses
+            samples_r = self.replay_buffer.sample_batch(self.batch_size)
+
+            #####
+            agent_inputs, target_inputs, action = buffer_to(
+                (samples_r.agent_inputs, samples_r.target_inputs, samples_r.action))
+
+            if self.mid_batch_reset and not self.agent.recurrent:
+                valid = torch.ones_like(samples_r.done, dtype=torch.float)  # or None
+            else:
+                valid = valid_from_done(samples_r.done)
+
+            with torch.no_grad():
+                target_action, target_log_pi, _ = self.agent.pi(*target_inputs)
+                target_q1, target_q2 = self.agent.target_q(*target_inputs, target_action)
+                
+                #! before this block is outside of torch.no_grad()
+                min_target_q = torch.min(target_q1, target_q2)
+                target_value = min_target_q - self._alpha * target_log_pi
+                disc = self.discount ** self.n_step_return
+                y = (self.reward_scale * samples_r.return_ +
+                    (1 - samples_r.done_n.float()) * disc * target_value)
+
+            # Get current Q estimates
+            q1, q2 = self.agent.q(*agent_inputs, action)
+            q1_loss = 0.5 * valid_mean((y - q1) ** 2, valid)
+            q2_loss = 0.5 * valid_mean((y - q2) ** 2, valid)
+            q_loss = q1_loss + q2_loss
+
+            self.q_optimizer.zero_grad()
+            q_loss.backward()
+            q_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.q_parameters(), self.clip_grad_norm)
+            self.q_optimizer.step()
+
+            # Actor, do not update conv layers
+            new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs, detach_encoder=True)
+            log_target1, log_target2 = self.agent.q(*agent_inputs, new_action, detach_encoder=True)
+            min_log_target = torch.min(log_target1, log_target2)
+            prior_log_pi = self.get_action_prior(new_action.cpu())
+            pi_losses = self._alpha * log_pi - min_log_target - prior_log_pi
+            pi_loss = valid_mean(pi_losses, valid)
+
+            if self.target_entropy is not None:
+                alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
+                alpha_loss = valid_mean(alpha_losses, valid)
+            else:
+                alpha_loss = None
+            #####
+
+            torch.autograd.set_detect_anomaly(True)
+
+            self.pi_optimizer.zero_grad()
+            pi_loss.backward()
+            pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.pi_parameters(),
+                self.clip_grad_norm)
+            # print(self.agent.q_model.encoder.conv.conv_layers[0].weight.grad)
+            self.pi_optimizer.step()
+            # pi_grad_norm = torch.tensor([0.])
 
             if alpha_loss is not None:
                 self.alpha_optimizer.zero_grad()
@@ -184,26 +224,9 @@ class SAC(RlAlgorithm):
                 self.alpha_optimizer.step()
                 self._alpha = torch.exp(self._log_alpha.detach())
 
-            self.pi_optimizer.zero_grad()
-            pi_loss.backward()
-            pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.pi_parameters(),
-                self.clip_grad_norm)
-            self.pi_optimizer.step()
-
-            # Step Q's last because pi_loss.backward() uses them?
-            self.q1_optimizer.zero_grad()
-            q1_loss.backward()
-            q1_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.q1_parameters(),
-                self.clip_grad_norm)
-            self.q1_optimizer.step()
-
-            self.q2_optimizer.zero_grad()
-            q2_loss.backward()
-            q2_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.q2_parameters(),
-                self.clip_grad_norm)
-            self.q2_optimizer.step()
-
-            grad_norms = (q1_grad_norm, q2_grad_norm, pi_grad_norm)
+            losses = (q_loss, pi_loss, alpha_loss)
+            values = tuple(val.detach() for val in (q1, q2, pi_mean,pi_log_std))
+            grad_norms = (q_grad_norm, pi_grad_norm)
 
             self.append_opt_info_(opt_info, losses, grad_norms, values)
             self.update_counter += 1
@@ -221,70 +244,7 @@ class SAC(RlAlgorithm):
             reward=samples.env.reward,
             done=samples.env.done,
         )
-        if self.bootstrap_timelimit:
-            samples_to_buffer = SamplesToBufferTl(*samples_to_buffer,
-                timeout=samples.env.env_info.timeout)
         return samples_to_buffer
-
-    def loss(self, samples):
-        """
-        Computes losses for twin Q-values against the min of twin target Q-values
-        and an entropy term.  Computes reparameterized policy loss, and loss for
-        tuning entropy weighting, alpha.  
-        
-        Input samples have leading batch dimension [B,..] (but not time).
-        """
-        agent_inputs, target_inputs, action = buffer_to(
-            (samples.agent_inputs, samples.target_inputs, samples.action))
-
-        if self.mid_batch_reset and not self.agent.recurrent:
-            valid = torch.ones_like(samples.done, dtype=torch.float)  # or None
-        else:
-            valid = valid_from_done(samples.done)
-        if self.bootstrap_timelimit:
-            # To avoid non-use of bootstrap when environment is 'done' due to
-            # time-limit, turn off training on these samples.
-            valid *= (1 - samples.timeout_n.float())
-
-        q1, q2 = self.agent.q(*agent_inputs, action)
-        with torch.no_grad():
-            target_action, target_log_pi, _ = self.agent.pi(*target_inputs)
-            target_q1, target_q2 = self.agent.target_q(*target_inputs, target_action)
-        min_target_q = torch.min(target_q1, target_q2)
-        target_value = min_target_q - self._alpha * target_log_pi
-        disc = self.discount ** self.n_step_return
-        y = (self.reward_scale * samples.return_ +
-            (1 - samples.done_n.float()) * disc * target_value)
-
-        q1_loss = 0.5 * valid_mean((y - q1) ** 2, valid)
-        q2_loss = 0.5 * valid_mean((y - q2) ** 2, valid)
-
-        new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs)
-        if not self.reparameterize:
-            new_action = new_action.detach()  # No grad.
-        log_target1, log_target2 = self.agent.q(*agent_inputs, new_action)
-        min_log_target = torch.min(log_target1, log_target2)
-        prior_log_pi = self.get_action_prior(new_action.cpu())
-
-        if self.reparameterize:
-            pi_losses = self._alpha * log_pi - min_log_target - prior_log_pi
-        else:
-            raise NotImplementedError
-
-        # if self.policy_output_regularization > 0:
-        #     pi_losses += self.policy_output_regularization * torch.mean(
-        #         0.5 * pi_mean ** 2 + 0.5 * pi_log_std ** 2, dim=-1)
-        pi_loss = valid_mean(pi_losses, valid)
-
-        if self.target_entropy is not None and self.fixed_alpha is None:
-            alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
-            alpha_loss = valid_mean(alpha_losses, valid)
-        else:
-            alpha_loss = None
-
-        losses = (q1_loss, q2_loss, pi_loss, alpha_loss)
-        values = tuple(val.detach() for val in (q1, q2, pi_mean, pi_log_std))
-        return losses, values
 
     def get_action_prior(self, action):
         if self.action_prior == "uniform":
@@ -296,14 +256,13 @@ class SAC(RlAlgorithm):
 
     def append_opt_info_(self, opt_info, losses, grad_norms, values):
         """In-place."""
-        q1_loss, q2_loss, pi_loss, alpha_loss = losses
-        q1_grad_norm, q2_grad_norm, pi_grad_norm = grad_norms
+        q_loss, pi_loss, alpha_loss = losses
+        q_grad_norm, pi_grad_norm = grad_norms
+
         q1, q2, pi_mean, pi_log_std = values
-        opt_info.q1Loss.append(q1_loss.item())
-        opt_info.q2Loss.append(q2_loss.item())
+        opt_info.qLoss.append(q_loss.item())
         opt_info.piLoss.append(pi_loss.item())
-        opt_info.q1GradNorm.append(q1_grad_norm.clone().detach().item())  # backwards compatible
-        opt_info.q2GradNorm.append(q2_grad_norm.clone().detach().item())  # backwards compatible
+        opt_info.qGradNorm.append(q_grad_norm.clone().detach().item())  # backwards compatible
         opt_info.piGradNorm.append(pi_grad_norm.clone().detach().item())  # backwards compatible
         opt_info.q1.extend(q1[::10].numpy())  # Downsample for stats.
         opt_info.q2.extend(q2[::10].numpy())
@@ -315,16 +274,14 @@ class SAC(RlAlgorithm):
     def optim_state_dict(self):
         return dict(
             pi_optimizer=self.pi_optimizer.state_dict(),
-            q1_optimizer=self.q1_optimizer.state_dict(),
-            q2_optimizer=self.q2_optimizer.state_dict(),
+            q_optimizer=self.q_optimizer.state_dict(),
             alpha_optimizer=self.alpha_optimizer.state_dict() if self.alpha_optimizer else None,
             log_alpha=self._log_alpha.detach().item(),
         )
 
     def load_optim_state_dict(self, state_dict):
         self.pi_optimizer.load_state_dict(state_dict["pi_optimizer"])
-        self.q1_optimizer.load_state_dict(state_dict["q1_optimizer"])
-        self.q2_optimizer.load_state_dict(state_dict["q2_optimizer"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
         if self.alpha_optimizer is not None and state_dict["alpha_optimizer"] is not None:
             self.alpha_optimizer.load_state_dict(state_dict["alpha_optimizer"])
         with torch.no_grad():
