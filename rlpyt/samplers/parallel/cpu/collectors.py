@@ -6,6 +6,7 @@ from rlpyt.samplers.collectors import (DecorrelatingStartCollector,
 from rlpyt.agents.base import AgentInputs
 from rlpyt.utils.buffer import (torchify_buffer, numpify_buffer, buffer_from_example,
     buffer_method)
+from rlpyt.utils.saliency import saliency
 
 
 class CpuResetCollector(DecorrelatingStartCollector):
@@ -30,7 +31,6 @@ class CpuResetCollector(DecorrelatingStartCollector):
         observation, action, reward = agent_inputs
         obs_pyt, act_pyt, rew_pyt = torchify_buffer(agent_inputs)
         agent_buf.prev_action[0] = action  # Leading prev_action.
-        # env_buf.prev_reward[0] = reward[:,np.newaxis]   #!
         env_buf.prev_reward[0] = reward
         self.agent.sample_mode(itr)
         for t in range(self.batch_T):
@@ -55,7 +55,6 @@ class CpuResetCollector(DecorrelatingStartCollector):
                 if env_info:
                     env_buf.env_info[t, b] = env_info
             agent_buf.action[t] = action
-            # env_buf.reward[t] = reward[:,np.newaxis]   #!
             env_buf.reward[t] = reward
             if agent_info:
                 agent_buf.agent_info[t] = agent_info
@@ -205,6 +204,10 @@ class CpuEvalCollector(BaseEvalCollector):
                     r = 0
                     self.agent.reset_one(idx=b) # this does not do anything right now
                     envs_done_flag[b] = 1
+
+                # Save saliency
+                if t == 10 and b == 0:
+                    saliency(img=o, model=self.agent.model, save_path=self.agent.saliency_dir+str(itr)+'.png')
 
                 observation[b] = o
                 reward[b] = r

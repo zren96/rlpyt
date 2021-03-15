@@ -167,6 +167,10 @@ class PiConvTiedModel(torch.nn.Module):
             hidden_sizes=hidden_sizes,
             output_size=action_size * 2,
         )
+        # print('Num of conv parameters: %d' % sum(p.numel() for p in self.encoder.parameters() if p.requires_grad))
+        # print('Num of mlp parameters: %d' % sum(p.numel() for p in self.mlp.parameters() if p.requires_grad))
+        # while 1:
+        #     continue
 
 
     def forward(self, image, prev_action, prev_reward, detach_encoder=False):

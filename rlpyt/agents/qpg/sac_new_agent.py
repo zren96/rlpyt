@@ -18,7 +18,7 @@ MIN_LOG_STD = -20
 MAX_LOG_STD = 2
 
 AgentInfo = namedarraytuple("AgentInfo", ["dist_info"])
-Models = namedtuple("Models", ["pi", "q1", "q2"])
+Models = namedtuple("Models", ["pi", "q"])
 
 
 class SacNewAgent(BaseAgent):
@@ -31,6 +31,7 @@ class SacNewAgent(BaseAgent):
             initial_model_state_dict=None,  # All models.
             action_squash=2.,  # Max magnitude (or None).
             pretrain_std=0.75,  # With squash 0.75 is near uniform.
+            saliency_dir=None,
             ):
         """Saves input arguments; network defaults stored within."""
         if model_kwargs is None:
@@ -50,16 +51,6 @@ class SacNewAgent(BaseAgent):
             global_B=global_B, env_ranks=env_ranks)
         self.initial_model_state_dict = _initial_model_state_dict
 
-        # self.q1_model = self.QModelCls(**self.env_model_kwargs, **self.q_model_kwargs)
-        # self.q2_model = self.QModelCls(**self.env_model_kwargs, **self.q_model_kwargs)
-        # self.target_q1_model = self.QModelCls(**self.env_model_kwargs,
-        #     **self.q_model_kwargs)
-        # self.target_q2_model = self.QModelCls(**self.env_model_kwargs,
-        #     **self.q_model_kwargs)
-        # self.target_q1_model.load_state_dict(self.q1_model.state_dict())
-        # self.target_q2_model.load_state_dict(self.q2_model.state_dict())
-
-        #!
         self.q_model = QDoubleConvTiedModel(**self.env_model_kwargs, **self.q_model_kwargs)
         self.target_q_model = QDoubleConvTiedModel(**self.env_model_kwargs,
             **self.q_model_kwargs)
@@ -81,25 +72,11 @@ class SacNewAgent(BaseAgent):
 
     def to_device(self, cuda_idx=None):
         super().to_device(cuda_idx)
-        # self.q1_model.to(self.device)
-        # self.q2_model.to(self.device)
-        # self.target_q1_model.to(self.device)
-        # self.target_q2_model.to(self.device)
         self.q_model.to(self.device)
         self.target_q_model.to(self.device)
 
     def data_parallel(self):
         device_id = super().data_parallel
-        # self.q1_model = DDP(
-        #     self.q1_model,
-        #     device_ids=None if device_id is None else [device_id],  # 1 GPU.
-        #     output_device=device_id,
-        # )
-        # self.q2_model = DDP(
-        #     self.q2_model,
-        #     device_ids=None if device_id is None else [device_id],  # 1 GPU.
-        #     output_device=device_id,
-        # )
         self.q_model = DDP(
             self.q_model,
             device_ids=None if device_id is None else [device_id],  # 1 GPU.
@@ -122,8 +99,6 @@ class SacNewAgent(BaseAgent):
         (with grad)."""
         model_inputs = buffer_to((observation, prev_action, prev_reward,
             action), device=self.device)
-        # q1 = self.q1_model(*model_inputs)
-        # q2 = self.q2_model(*model_inputs)
         q1, q2 = self.q_model(*model_inputs, detach_encoder=detach_encoder)
         return q1.cpu(), q2.cpu()
 
@@ -132,8 +107,6 @@ class SacNewAgent(BaseAgent):
         action.""" 
         model_inputs = buffer_to((observation, prev_action,
             prev_reward, action), device=self.device)
-        # target_q1 = self.target_q1_model(*model_inputs)
-        # target_q2 = self.target_q2_model(*model_inputs)
         target_q1, target_q2 = self.target_q_model(*model_inputs)
         return target_q1.cpu(), target_q2.cpu()
 
@@ -147,8 +120,6 @@ class SacNewAgent(BaseAgent):
         mean, log_std = self.model(*model_inputs, detach_encoder=detach_encoder)
         dist_info = DistInfoStd(mean=mean, log_std=log_std)
         action, log_pi = self.distribution.sample_loglikelihood(dist_info)
-        # action = self.distribution.sample(dist_info)
-        # log_pi = self.distribution.log_likelihood(action, dist_info)
         log_pi, dist_info = buffer_to((log_pi, dist_info), device="cpu")
         return action, log_pi, dist_info  # Action stays on device for q models.
 
@@ -164,37 +135,24 @@ class SacNewAgent(BaseAgent):
         return AgentStep(action=action, agent_info=agent_info)
 
     def update_target(self, tau=1):
-        # update_state_dict(self.target_q1_model, self.q1_model.state_dict(), tau)
-        # update_state_dict(self.target_q2_model, self.q2_model.state_dict(), tau)
         update_state_dict(self.target_q_model, self.q_model.state_dict(), tau)
 
-    # TODO: any effect?
     @property
     def models(self):
-        return Models(pi=self.model, q1=self.q1_model, q2=self.q2_model)
+        return Models(pi=self.model, q=self.q_model)
 
     def pi_parameters(self):
         return self.model.parameters()
-
-    # def q1_parameters(self):
-    #     return self.q1_model.parameters()
-
-    # def q2_parameters(self):
-    #     return self.q2_model.parameters()
 
     def q_parameters(self):
         return self.q_model.parameters()
 
     def train_mode(self, itr):
         super().train_mode(itr)
-        # self.q1_model.train()
-        # self.q2_model.train()
         self.q_model.train()
 
     def sample_mode(self, itr):
         super().sample_mode(itr)
-        # self.q1_model.eval()
-        # self.q2_model.eval()
         self.q_model.eval()
         if itr == 0:
             logger.log(f"Agent at itr {itr}, sample std: {self.pretrain_std}")
@@ -205,27 +163,17 @@ class SacNewAgent(BaseAgent):
 
     def eval_mode(self, itr):
         super().eval_mode(itr)
-        # self.q1_model.eval()
-        # self.q2_model.eval()
         self.q_model.eval()
         self.distribution.set_std(0.)  # Deterministic (dist_info std ignored).
 
     def state_dict(self):
         return dict(
             model=self.model.state_dict(),  # Pi model.
-            # q1_model=self.q1_model.state_dict(),
-            # q2_model=self.q2_model.state_dict(),
             q1_model=self.q_model.state_dict(),
-            # target_q1_model=self.target_q1_model.state_dict(),
-            # target_q2_model=self.target_q2_model.state_dict(),
             target_q_model=self.target_q_model.state_dict(),
         )
 
     def load_state_dict(self, state_dict):
         self.model.load_state_dict(state_dict["model"])
-        # self.q1_model.load_state_dict(state_dict["q1_model"])
-        # self.q2_model.load_state_dict(state_dict["q2_model"])
         self.q_model.load_state_dict(state_dict["q_model"])
-        # self.target_q1_model.load_state_dict(state_dict["target_q1_model"])
-        # self.target_q2_model.load_state_dict(state_dict["target_q2_model"])
         self.target_q_model.load_state_dict(state_dict["target_q_model"])
