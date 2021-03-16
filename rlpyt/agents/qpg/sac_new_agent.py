@@ -169,7 +169,7 @@ class SacNewAgent(BaseAgent):
     def state_dict(self):
         return dict(
             model=self.model.state_dict(),  # Pi model.
-            q1_model=self.q_model.state_dict(),
+            q_model=self.q_model.state_dict(),
             target_q_model=self.target_q_model.state_dict(),
         )
 

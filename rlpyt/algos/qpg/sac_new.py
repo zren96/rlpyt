@@ -28,7 +28,7 @@ SamplesToBufferTl = namedarraytuple("SamplesToBufferTl",
 
 class SACNew(RlAlgorithm):
     """Soft actor critic algorithm, training from a replay buffer."""
-    # Assume adaptive alpha; no bootstrap limit; no policy_output_regularization; reparameterize=True
+    # Assume adaptive alpha; no bootstrap limit; no policy_output_regularization; reparameterize=True; target_entropy='auto'
 
     opt_info_fields = tuple(f for f in OptInfo._fields)  # copy
 
@@ -40,7 +40,9 @@ class SACNew(RlAlgorithm):
             replay_size=int(1e6),
             replay_ratio=256,  # data_consumption / data_generation
             target_update_tau=0.005,  # tau=1 for hard update.
-            target_update_interval=1,  # 1000 for hard update, 1 for soft.
+            target_update_interval=2,  # 1000 for hard update, 1 for soft.
+            actor_update_interval=2,
+            initial_alpha=0.1,
             learning_rate=3e-4,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
@@ -48,7 +50,6 @@ class SACNew(RlAlgorithm):
             initial_replay_buffer_dict=None,
             action_prior="uniform",  # or "gaussian"
             reward_scale=1,
-            target_entropy="auto",  # "auto", float, or None
             clip_grad_norm=1e9,
             n_step_return=1,
             updates_per_sync=1,  # For async mode only.
@@ -105,13 +106,12 @@ class SACNew(RlAlgorithm):
         self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
 
-        self._log_alpha = torch.zeros(1, requires_grad=True)
+        self._log_alpha = torch.tensor(np.log(self.initial_alpha), requires_grad=True)
         self._alpha = torch.exp(self._log_alpha.detach())
         self.alpha_optimizer = self.OptimCls((self._log_alpha,),
             lr=self.learning_rate, **self.optim_kwargs)
 
-        if self.target_entropy == "auto":
-            self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
+        self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
         if self.initial_optim_state_dict is not None:
             self.load_optim_state_dict(self.initial_optim_state_dict)
         if self.action_prior == "gaussian":
@@ -201,28 +201,24 @@ class SACNew(RlAlgorithm):
             pi_losses = self._alpha * log_pi - min_log_target - prior_log_pi
             pi_loss = valid_mean(pi_losses, valid)
 
-            if self.target_entropy is not None:
-                alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
-                alpha_loss = valid_mean(alpha_losses, valid)
-            else:
-                alpha_loss = None
+            alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
+            alpha_loss = valid_mean(alpha_losses, valid)
             #####
 
-            torch.autograd.set_detect_anomaly(True)
+            # torch.autograd.set_detect_anomaly(True)
 
             self.pi_optimizer.zero_grad()
             pi_loss.backward()
-            pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.pi_parameters(),
-                self.clip_grad_norm)
+            pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.pi_parameters(), self.clip_grad_norm)
             # print(self.agent.q_model.encoder.conv.conv_layers[0].weight.grad)
-            self.pi_optimizer.step()
-            # pi_grad_norm = torch.tensor([0.])
+            if self.update_counter % self.actor_update_interval == 0:
+                self.pi_optimizer.step()
 
-            if alpha_loss is not None:
-                self.alpha_optimizer.zero_grad()
-                alpha_loss.backward()
+            self.alpha_optimizer.zero_grad()
+            alpha_loss.backward()
+            if self.update_counter % self.actor_update_interval == 0:
                 self.alpha_optimizer.step()
-                self._alpha = torch.exp(self._log_alpha.detach())
+            self._alpha = torch.exp(self._log_alpha.detach())
 
             losses = (q_loss, pi_loss, alpha_loss)
             values = tuple(val.detach() for val in (q1, q2, pi_mean,pi_log_std))

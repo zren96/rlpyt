@@ -369,3 +369,64 @@ class MinibatchRlEval(MinibatchRlBase):
             self._cum_eval_time += eval_time
             logger.record_tabular('CumEvalTime', self._cum_eval_time)
         super().log_diagnostics(itr, eval_traj_infos, eval_time, save_cur, prefix=prefix)
+
+class MinibatchRlEvalOnly(MinibatchRlBase):
+    """
+    Only evaluating
+    """
+
+    _eval = True
+
+    def eval(self):
+        """
+        Performs startup, evaluates the initial agent, then loops by
+        alternating between ``sampler.obtain_samples()`` and
+        ``algo.optimize_agent()``.  Pauses to evaluate the agent at the
+        specified log interval.
+        """
+        itr = 0
+        logger.set_iteration(itr)
+        with logger.prefix(f"itr #{itr} "):
+            eval_traj_infos, eval_time = self.evaluate_agent(itr)
+            # eval_reward_avg = self.get_eval_reward(eval_traj_infos)
+            self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur=False)
+        self.shutdown()
+
+    def get_eval_reward(self, traj_infos):
+        """
+        This is for determining when to save snapshot
+        """
+        for k in traj_infos[0]:
+            if k == 'Return':   # 'Length', 'Return', 'NonzeroRewards', 'DiscountedReturn', '_cur_discount'
+                all = [info[k] for info in traj_infos]
+                return np.mean(all)
+
+    def evaluate_agent(self, itr):
+        """
+        Record offline evaluation of agent performance, by ``sampler.evaluate_agent()``.
+        """
+        self.pbar.stop()
+
+        logger.log("Evaluating agent...")
+        self.agent.eval_mode(itr)  # Might be agent in sampler.
+        eval_time = -time.time()
+        traj_infos = self.sampler.evaluate_agent(itr)
+        eval_time += time.time()
+
+        logger.log("Evaluation runs complete.")
+        return traj_infos, eval_time
+
+    def initialize_logging(self):
+        super().initialize_logging()
+        self._cum_eval_time = 0
+
+    def log_diagnostics(self, itr, eval_traj_infos, eval_time, save_cur=False, prefix='Diagnostics/'):
+        if not eval_traj_infos:
+            logger.log("WARNING: had no complete trajectories in eval.")
+        steps_in_eval = sum([info["Length"] for info in eval_traj_infos])
+        with logger.tabular_prefix(prefix):
+            logger.record_tabular('StepsInEval', steps_in_eval)
+            logger.record_tabular('TrajsInEval', len(eval_traj_infos))
+            self._cum_eval_time += eval_time
+            logger.record_tabular('CumEvalTime', self._cum_eval_time)
+        super().log_diagnostics(itr, eval_traj_infos, eval_time, save_cur, prefix=prefix)
