@@ -39,10 +39,10 @@ class SACNew(RlAlgorithm):
             min_steps_learn=int(1e4),
             replay_size=int(1e6),
             replay_ratio=256,  # data_consumption / data_generation
-            target_update_tau=0.01,  # tau=1 for hard update.
-            target_update_interval=2,  # 1000 for hard update, 1 for soft.
-            actor_update_interval=2,
-            initial_alpha=0.1,
+            target_update_tau=0.005,  # tau=1 for hard update.
+            target_update_interval=1,  # 1000 for hard update, 1 for soft.
+            actor_update_interval=1,
+            initial_alpha=1.0,
             learning_rate=3e-4,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
