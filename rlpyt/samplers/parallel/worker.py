@@ -12,7 +12,7 @@ def initialize_worker(rank, seed=None, cpu=None, torch_threads=None):
     """Assign CPU affinity, set random seed, set torch_threads if needed to
     prevent MKL deadlock.
     """
-    log_str = f"Sampler rank {rank} initialized"
+    # log_str = f"Sampler rank {rank} initialized"
     cpu = [cpu] if isinstance(cpu, int) else cpu
     p = psutil.Process()
     try:
@@ -21,17 +21,17 @@ def initialize_worker(rank, seed=None, cpu=None, torch_threads=None):
         cpu_affin = p.cpu_affinity()
     except AttributeError:
         cpu_affin = "UNAVAILABLE MacOS"
-    log_str += f", CPU affinity {cpu_affin}"
+    # log_str += f", CPU affinity {cpu_affin}"
     torch_threads = (1 if torch_threads is None and cpu is not None else
         torch_threads)  # Default to 1 to avoid possible MKL hang.
     if torch_threads is not None:
         torch.set_num_threads(torch_threads)
-    log_str += f", Torch threads {torch.get_num_threads()}"
+    # log_str += f", Torch threads {torch.get_num_threads()}"
     if seed is not None:
         set_seed(seed)
         time.sleep(0.3)  # (so the printing from set_seed is not intermixed)
-        log_str += f", Seed {seed}"
-    logger.log(log_str)
+        # log_str += f", Seed {seed}"
+    # logger.log(log_str)
 
 
 def sampling_process(common_kwargs, worker_kwargs):

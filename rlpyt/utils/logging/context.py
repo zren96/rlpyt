@@ -4,7 +4,8 @@ import os
 import os.path as osp
 from contextlib import contextmanager
 try:
-    from torch.utils.tensorboard.writer import SummaryWriter
+    from tensorboardX import SummaryWriter
+    # from torch.utils.tensorboard.writer import SummaryWriter
 except ImportError:
     print("Unable to import tensorboard SummaryWriter, proceeding without.")
 

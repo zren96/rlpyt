@@ -161,9 +161,9 @@ class ParallelSamplerBase(BaseSampler):
         B = self.batch_spec.B if B is None else B
         n_worker = len(affinity["workers_cpus"]) if n_worker is None else n_worker
         if B < n_worker:
-            logger.log(f"WARNING: requested fewer envs ({B}) than available worker "
-                f"processes ({n_worker}). Using fewer workers (but maybe better to "
-                "increase sampler's `batch_B`.")
+            # logger.log(f"WARNING: requested fewer envs ({B}) than available worker "
+            #     f"processes ({n_worker}). Using fewer workers (but maybe better to "
+            #     "increase sampler's `batch_B`.")
             n_worker = B
         n_envs_list = [B // n_worker] * n_worker
         if not B % n_worker == 0:

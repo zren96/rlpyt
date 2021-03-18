@@ -92,9 +92,9 @@ class DecorrelatingStartCollector(BaseCollector):
         prev_action = np.stack([env.action_space.null_value()
             for env in self.envs])
         prev_reward = np.zeros(len(self.envs), dtype="float32")
-        if self.rank == 0:
-            logger.log("Sampler decorrelating envs, max steps: "
-                f"{max_decorrelation_steps}")
+        # if self.rank == 0:
+            # logger.log("Sampler decorrelating envs, max steps: "
+                # f"{max_decorrelation_steps}")
         if max_decorrelation_steps != 0:
             for b, env in enumerate(self.envs):
                 n_steps = 1 + int(np.random.rand() * max_decorrelation_steps)

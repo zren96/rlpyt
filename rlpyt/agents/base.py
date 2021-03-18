@@ -113,7 +113,7 @@ class BaseAgent:
             self.model.load_state_dict(self.shared_model.state_dict())
         self.device = torch.device("cuda", index=cuda_idx)
         self.model.to(self.device)
-        logger.log(f"Initialized agent model on device: {self.device}.")
+        # logger.log(f"Initialized agent model on device: {self.device}.")
 
     def data_parallel(self):
         """Wraps the model with PyTorch's DistributedDataParallel.  The

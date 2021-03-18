@@ -98,6 +98,7 @@ class MinibatchRlBase(BaseRunner):
         self.initialize_logging()
         return n_itr
 
+
     def get_traj_info_kwargs(self):
         """
         Pre-defines any TrajInfo attributes needed from elsewhere e.g.
@@ -118,7 +119,7 @@ class MinibatchRlBase(BaseRunner):
             n_itr += log_interval_itrs - (n_itr % log_interval_itrs)
         self.log_interval_itrs = log_interval_itrs
         self.n_itr = n_itr
-        logger.log(f"Running {n_itr} iterations of minibatch RL.")
+        # logger.log(f"Running {n_itr} iterations of minibatch RL.")
         return n_itr
 
     def initialize_logging(self):
@@ -384,13 +385,17 @@ class MinibatchRlEvalOnly(MinibatchRlBase):
         ``algo.optimize_agent()``.  Pauses to evaluate the agent at the
         specified log interval.
         """
+        n_itr = self.startup()
         itr = 0
-        logger.set_iteration(itr)
-        with logger.prefix(f"itr #{itr} "):
-            eval_traj_infos, eval_time = self.evaluate_agent(itr)
-            # eval_reward_avg = self.get_eval_reward(eval_traj_infos)
-            self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur=False)
-        self.shutdown()
+        # logger.set_iteration(itr)
+        # with logger.prefix(f"itr #{itr} "):
+        eval_traj_infos, eval_time = self.evaluate_agent(itr)
+        eval_reward_avg = self.get_eval_reward(eval_traj_infos)
+        # self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur=False)
+        self.sampler.shutdown()
+        # print('\n\nAvg reward: ', eval_reward_avg)
+        return eval_reward_avg
+        
 
     def get_eval_reward(self, traj_infos):
         """
@@ -405,28 +410,76 @@ class MinibatchRlEvalOnly(MinibatchRlBase):
         """
         Record offline evaluation of agent performance, by ``sampler.evaluate_agent()``.
         """
-        self.pbar.stop()
-
-        logger.log("Evaluating agent...")
+        # logger.log("Evaluating agent...")
         self.agent.eval_mode(itr)  # Might be agent in sampler.
         eval_time = -time.time()
         traj_infos = self.sampler.evaluate_agent(itr)
         eval_time += time.time()
 
-        logger.log("Evaluation runs complete.")
+        # logger.log("Evaluation runs complete.")
         return traj_infos, eval_time
 
-    def initialize_logging(self):
-        super().initialize_logging()
-        self._cum_eval_time = 0
+    # def initialize_logging(self):
+    #     super().initialize_logging()
+    #     self._cum_eval_time = 0
 
-    def log_diagnostics(self, itr, eval_traj_infos, eval_time, save_cur=False, prefix='Diagnostics/'):
-        if not eval_traj_infos:
-            logger.log("WARNING: had no complete trajectories in eval.")
-        steps_in_eval = sum([info["Length"] for info in eval_traj_infos])
-        with logger.tabular_prefix(prefix):
-            logger.record_tabular('StepsInEval', steps_in_eval)
-            logger.record_tabular('TrajsInEval', len(eval_traj_infos))
-            self._cum_eval_time += eval_time
-            logger.record_tabular('CumEvalTime', self._cum_eval_time)
-        super().log_diagnostics(itr, eval_traj_infos, eval_time, save_cur, prefix=prefix)
+    def startup(self):
+        """
+        Sets hardware affinities, initializes the following: 1) sampler (which
+        should initialize the agent), 2) agent device and data-parallel wrapper (if applicable),
+        3) algorithm, 4) logger.
+        """
+        p = psutil.Process()
+        try:
+            if (self.affinity.get("master_cpus", None) is not None and
+                    self.affinity.get("set_affinity", True)):
+                p.cpu_affinity(self.affinity["master_cpus"])
+            cpu_affin = p.cpu_affinity()
+        except AttributeError:
+            cpu_affin = "UNAVAILABLE MacOS"
+        # logger.log(f"Runner {getattr(self, 'rank', '')} master CPU affinity: "
+            # f"{cpu_affin}.")
+        if self.affinity.get("master_torch_threads", None) is not None:
+            torch.set_num_threads(self.affinity["master_torch_threads"])
+        # logger.log(f"Runner {getattr(self, 'rank', '')} master Torch threads: "
+            # f"{torch.get_num_threads()}.")
+        if self.seed is None:
+            self.seed = make_seed()
+        set_seed(self.seed)
+        self.rank = rank = getattr(self, "rank", 0)
+        self.world_size = world_size = getattr(self, "world_size", 1)
+        examples = self.sampler.initialize(
+            agent=self.agent,  # Agent gets initialized in sampler.
+            affinity=self.affinity,
+            seed=self.seed + 1,
+            bootstrap_value=getattr(self.algo, "bootstrap_value", False),
+            traj_info_kwargs=self.get_traj_info_kwargs(),
+            rank=rank,
+            world_size=world_size,
+        )
+        self.itr_batch_size = self.sampler.batch_spec.size * world_size
+        n_itr = self.get_n_itr()
+        self.agent.to_device(self.affinity.get("cuda_idx", None))
+        if world_size > 1:
+            self.agent.data_parallel()
+        self.algo.initialize(
+            agent=self.agent,
+            n_itr=n_itr,
+            batch_spec=self.sampler.batch_spec,
+            mid_batch_reset=self.sampler.mid_batch_reset,
+            examples=examples,
+            world_size=world_size,
+            rank=rank,
+        )
+        # self.initialize_logging()
+        return n_itr
+
+    # def log_diagnostics(self, itr, eval_traj_infos, eval_time, save_cur=False, prefix='Diagnostics/'):
+
+    #     steps_in_eval = sum([info["Length"] for info in eval_traj_infos])
+    #     with logger.tabular_prefix(prefix):
+    #         logger.record_tabular('StepsInEval', steps_in_eval)
+    #         logger.record_tabular('TrajsInEval', len(eval_traj_infos))
+    #         self._cum_eval_time += eval_time
+    #         logger.record_tabular('CumEvalTime', self._cum_eval_time)
+    #     super().log_diagnostics(itr, eval_traj_infos, eval_time, save_cur, prefix=prefix)

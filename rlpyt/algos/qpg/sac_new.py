@@ -75,10 +75,10 @@ class SACNew(RlAlgorithm):
         self.sampler_bs = sampler_bs = batch_spec.size
         self.updates_per_optimize = int(self.replay_ratio * sampler_bs /
             self.batch_size)
-        logger.log(f"From sampler batch size {sampler_bs}, training "
-            f"batch size {self.batch_size}, and replay ratio "
-            f"{self.replay_ratio}, computed {self.updates_per_optimize} "
-            f"updates per iteration.")
+        # logger.log(f"From sampler batch size {sampler_bs}, training "
+            # f"batch size {self.batch_size}, and replay ratio "
+            # f"{self.replay_ratio}, computed {self.updates_per_optimize} "
+            # f"updates per iteration.")
         self.min_itr_learn = self.min_steps_learn // sampler_bs
         agent.give_min_itr_learn(self.min_itr_learn)
         self.initialize_replay_buffer(examples, batch_spec)
