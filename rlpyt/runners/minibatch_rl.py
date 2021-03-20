@@ -61,12 +61,12 @@ class MinibatchRlBase(BaseRunner):
             cpu_affin = p.cpu_affinity()
         except AttributeError:
             cpu_affin = "UNAVAILABLE MacOS"
-        logger.log(f"Runner {getattr(self, 'rank', '')} master CPU affinity: "
-            f"{cpu_affin}.")
+        # logger.log(f"Runner {getattr(self, 'rank', '')} master CPU affinity: "
+            # f"{cpu_affin}.")
         if self.affinity.get("master_torch_threads", None) is not None:
             torch.set_num_threads(self.affinity["master_torch_threads"])
-        logger.log(f"Runner {getattr(self, 'rank', '')} master Torch threads: "
-            f"{torch.get_num_threads()}.")
+        # logger.log(f"Runner {getattr(self, 'rank', '')} master Torch threads: "
+            # f"{torch.get_num_threads()}.")
         if self.seed is None:
             self.seed = make_seed()
         set_seed(self.seed)
@@ -131,7 +131,7 @@ class MinibatchRlBase(BaseRunner):
 
     def shutdown(self):
         logger.log("Training complete.")
-        self.pbar.stop()
+        # self.pbar.stop()
         self.sampler.shutdown()
 
     def get_itr_snapshot(self, itr):
@@ -152,10 +152,10 @@ class MinibatchRlBase(BaseRunner):
         Calls the logger to save training checkpoint/snapshot (logger itself
         may or may not save, depending on mode selected).
         """
-        logger.log("saving snapshot...")
+        # logger.log("saving snapshot...")
         params = self.get_itr_snapshot(itr)
         logger.save_itr_params(itr, params, save_cur)
-        logger.log("saved")
+        # logger.log("saved")
 
     def store_diagnostics(self, itr, traj_infos, opt_info):
         """
@@ -166,14 +166,14 @@ class MinibatchRlBase(BaseRunner):
         for k, v in self._opt_infos.items():
             new_v = getattr(opt_info, k, [])
             v.extend(new_v if isinstance(new_v, list) else [new_v])
-        self.pbar.update((itr + 1) % self.log_interval_itrs)
+        # self.pbar.update((itr + 1) % self.log_interval_itrs)
 
     def log_diagnostics(self, itr, traj_infos=None, eval_time=0, save_cur=False, prefix='Diagnostics/'):
         """
         Write diagnostics (including stored ones) to csv via the logger.
         """
-        if itr > 0:
-            self.pbar.stop()
+        # if itr > 0:
+        #     self.pbar.stop()
         if itr >= self.min_itr_learn - 1:
             self.save_itr_snapshot(itr, save_cur)
         new_time = time.time()
@@ -212,7 +212,7 @@ class MinibatchRlBase(BaseRunner):
         self._last_update_counter = self.algo.update_counter
         if itr < self.n_itr - 1:
             logger.log(f"Optimizing over {self.log_interval_itrs} iterations.")
-            self.pbar = ProgBarCounter(self.log_interval_itrs)
+            # self.pbar = ProgBarCounter(self.log_interval_itrs)
 
     def _log_infos(self, traj_infos=None):
         """
@@ -223,7 +223,7 @@ class MinibatchRlBase(BaseRunner):
             traj_infos = self._traj_infos
         if traj_infos:
             for k in traj_infos[0]:
-                if not k.startswith("_"):
+                if (not k.startswith("_")) and (k != 'initial_state') and (k != 'img_path'):
                     logger.record_tabular_misc_stat(k, [info[k] for info in traj_infos])
 
         if self._opt_infos:
@@ -270,7 +270,7 @@ class MinibatchRl(MinibatchRlBase):
         self._new_completed_trajs = 0
         logger.log(f"Optimizing over {self.log_interval_itrs} iterations.")
         super().initialize_logging()
-        self.pbar = ProgBarCounter(self.log_interval_itrs)
+        # self.pbar = ProgBarCounter(self.log_interval_itrs)
 
     def store_diagnostics(self, itr, traj_infos, opt_info):
         self._new_completed_trajs += len(traj_infos)
@@ -302,6 +302,7 @@ class MinibatchRlEval(MinibatchRlBase):
         specified log interval.
         """
         best_eval_reward_avg = -1e5
+        best_itr = 0
 
         n_itr = self.startup()
         with logger.prefix(f"itr #0 "):
@@ -323,10 +324,15 @@ class MinibatchRlEval(MinibatchRlBase):
                     if eval_reward_avg > best_eval_reward_avg:
                         best_eval_reward_avg = eval_reward_avg
                         save_cur = True
+                        best_itr = itr
                     else:
                         save_cur = False
                     self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
+                    if itr % 10 == 0:
+                        logger.log(f'Average eval reward: {eval_reward_avg}')
+                        print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
         self.shutdown()
+        return best_itr # so can easily get the name of best policy
 
     def get_eval_reward(self, traj_infos):
         """
@@ -341,11 +347,11 @@ class MinibatchRlEval(MinibatchRlBase):
         """
         Record offline evaluation of agent performance, by ``sampler.evaluate_agent()``.
         """
-        if itr > 0:
-            self.pbar.stop()
+        # if itr > 0:
+        #     self.pbar.stop()
 
         if itr >= self.min_itr_learn - 1 or itr == 0:
-            logger.log("Evaluating agent...")
+            # logger.log("Evaluating agent...")
             self.agent.eval_mode(itr)  # Might be agent in sampler.
             eval_time = -time.time()
             traj_infos = self.sampler.evaluate_agent(itr)
@@ -353,7 +359,7 @@ class MinibatchRlEval(MinibatchRlBase):
         else:
             traj_infos = []
             eval_time = 0.0
-        logger.log("Evaluation runs complete.")
+        # logger.log("Evaluation runs complete.")
         return traj_infos, eval_time
 
     def initialize_logging(self):
@@ -390,21 +396,20 @@ class MinibatchRlEvalOnly(MinibatchRlBase):
         # logger.set_iteration(itr)
         # with logger.prefix(f"itr #{itr} "):
         eval_traj_infos, eval_time = self.evaluate_agent(itr)
-        eval_reward_avg = self.get_eval_reward(eval_traj_infos)
+        # for info in eval_traj_infos:
+        #     print(info)
+        eval_reward_all = self.get_eval_reward(eval_traj_infos)
         # self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur=False)
         self.sampler.shutdown()
         # print('\n\nAvg reward: ', eval_reward_avg)
-        return eval_reward_avg
+        return eval_reward_all
         
-
     def get_eval_reward(self, traj_infos):
         """
         This is for determining when to save snapshot
         """
-        for k in traj_infos[0]:
-            if k == 'Return':   # 'Length', 'Return', 'NonzeroRewards', 'DiscountedReturn', '_cur_discount'
-                all = [info[k] for info in traj_infos]
-                return np.mean(all)
+        all = [info['Return'] for info in traj_infos] # 'Length', 'Return', 'NonzeroRewards', 'DiscountedReturn', '_cur_discount'
+        return all
 
     def evaluate_agent(self, itr):
         """

@@ -52,5 +52,9 @@ class TrajInfo(AttrDict):
         self.DiscountedReturn += self._cur_discount * reward
         self._cur_discount *= self._discount
 
-    def terminate(self, observation):
+    def terminate(self, observation, initial_state=None, img_path=None):
+        if initial_state is not None:
+            self.initial_state = initial_state
+        if img_path is not None:
+            self.img_path = img_path
         return self

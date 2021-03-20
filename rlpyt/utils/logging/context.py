@@ -24,8 +24,7 @@ def get_log_dir(experiment_name, root_log_dir=None, date=True):
 
 @contextmanager
 def logger_context(
-    log_dir, run_ID, name, log_params=None, snapshot_mode="none", override_prefix=False,
-    use_summary_writer=False,
+    log_dir, run_ID, name, log_params=None, snapshot_mode="none", override_prefix=False, use_summary_writer=False, log_tabular_only=False,
 ):
     """Use as context manager around calls to the runner's ``train()`` method.
     Sets up the logger directory and filenames.  Unless override_prefix is
@@ -52,12 +51,12 @@ def logger_context(
     python process.
     """
     logger.set_snapshot_mode(snapshot_mode)
-    logger.set_log_tabular_only(False)
-    log_dir = osp.join(log_dir, f"run_{run_ID}")
+    logger.set_log_tabular_only(log_tabular_only)
+    # log_dir = osp.join(log_dir, f"run_{run_ID}")
     exp_dir = osp.abspath(log_dir)
     if LOG_DIR != osp.commonpath([exp_dir, LOG_DIR]) and not override_prefix:
-        print(f"logger_context received log_dir outside of {LOG_DIR}: "
-            f"prepending by {LOG_DIR}/local/<yyyymmdd>/<hhmmss>/")
+        # print(f"logger_context received log_dir outside of {LOG_DIR}: "
+            # f"prepending by {LOG_DIR}/local/<yyyymmdd>/<hhmmss>/")
         exp_dir = get_log_dir(log_dir)
     tabular_log_file = osp.join(exp_dir, "progress.csv")
     text_log_file = osp.join(exp_dir, "debug.log")

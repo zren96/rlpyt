@@ -200,12 +200,15 @@ def log(s, with_prefix=True, with_timestamp=True, color=None):
             out = "%s | %s" % (timestamp, out)
         if color is not None:
             out = colorize(out, color)
+
+        # log to csv
+        for fd in list(_text_fds.values()):
+            fd.write(out + '\n')
+            fd.flush()
+
         if not _log_tabular_only:
             # Also log to stdout
             print(out)
-            for fd in list(_text_fds.values()):
-                fd.write(out + '\n')
-                fd.flush()
             sys.stdout.flush()
 
 
@@ -276,14 +279,17 @@ def dump_tabular(*args, **kwargs):
     if not _disabled:  # and not _tabular_disabled:
         wh = kwargs.pop("write_header", None)
         if len(_tabular) > 0:
-            if _log_tabular_only:
+
+            # Terminal
+            if not _log_tabular_only:
                 table_printer.print_tabular(_tabular)
-            else:
-                for line in tabulate(_tabular).split('\n'):
-                    log(line, *args, **kwargs)
+            # else:
+            for line in tabulate(_tabular).split('\n'):
+                log(line, *args, **kwargs)
+
+            # Also write to the csv files
             if not _tabular_disabled:
                 tabular_dict = dict(_tabular)
-                # Also write to the csv files
                 # This assumes that the keys in each iteration won't change!
                 for tabular_file_name, tabular_fd in list(_tabular_fds.items()):
                     keys = tabular_dict.keys()

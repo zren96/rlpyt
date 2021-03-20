@@ -155,7 +155,7 @@ class GpuEvalCollector(BaseEvalCollector):
                     step.agent_info[b], env_info)
 
                 if getattr(env_info, "traj_done", d):
-                    self.traj_infos_queue.put(traj_infos[b].terminate(o))
+                    self.traj_infos_queue.put(traj_infos[b].terminate(o, env.initial_state, env.img_path))
                     traj_infos[b] = self.TrajInfoCls()
                     o = env.reset()
                     envs_done_flag[b] = 1
@@ -165,9 +165,9 @@ class GpuEvalCollector(BaseEvalCollector):
                 step.done[b] = d
             obs_ready.release()
 
-        # Regardless, add to queue TODO: need to tell traj_info the global index of envs (like which image was used)
-        for b in range(len(self.envs)):
+        # Regardless, add to queue; tell which image was used and what initial state
+        for b, env in enumerate(self.envs):
             if envs_done_flag[b] < 1e-4:
-                self.traj_infos_queue.put(traj_infos[b].terminate(o))
+                self.traj_infos_queue.put(traj_infos[b].terminate(o, env.initial_state, env.img_path))
 
         self.traj_infos_queue.put(None)  # End sentinel.

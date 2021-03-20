@@ -167,9 +167,9 @@ class ParallelSamplerBase(BaseSampler):
             n_worker = B
         n_envs_list = [B // n_worker] * n_worker
         if not B % n_worker == 0:
-            logger.log("WARNING: unequal number of envs per process, from "
-                f"batch_B {self.batch_spec.B} and n_worker {n_worker} "
-                "(possible suboptimal speed).")
+            # logger.log("WARNING: unequal number of envs per process, from "
+            #     f"batch_B {self.batch_spec.B} and n_worker {n_worker} "
+            #     "(possible suboptimal speed).")
             for b in range(B % n_worker):
                 n_envs_list[b] += 1
         return n_envs_list

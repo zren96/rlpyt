@@ -106,7 +106,7 @@ class SACNew(RlAlgorithm):
         self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
 
-        self._log_alpha = torch.tensor(np.log(self.initial_alpha), requires_grad=True)
+        self._log_alpha = torch.tensor([np.log(self.initial_alpha)], requires_grad=True)    # make a vector explicitly
         self._alpha = torch.exp(self._log_alpha.detach())
         self.alpha_optimizer = self.OptimCls((self._log_alpha,),
             lr=self.learning_rate, **self.optim_kwargs)

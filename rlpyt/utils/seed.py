@@ -19,7 +19,7 @@ def set_seed(seed):
     import torch
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    print(colorize(f"using seed {seed}", "green"))
+    # print(colorize(f"using seed {seed}", "green"))
 
 
 def get_seed():
