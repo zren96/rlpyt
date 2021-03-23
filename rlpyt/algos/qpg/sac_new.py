@@ -43,6 +43,7 @@ class SACNew(RlAlgorithm):
             target_update_interval=1,  # 1000 for hard update, 1 for soft.
             actor_update_interval=1,
             initial_alpha=1.0,
+            fixed_alpha=False,
             learning_rate=3e-4,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
@@ -106,10 +107,14 @@ class SACNew(RlAlgorithm):
         self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
 
+        if self.fixed_alpha:
+            alpha_learning_rate = 0.
+        else:
+            alpha_learning_rate = self.learning_rate
         self._log_alpha = torch.tensor([np.log(self.initial_alpha)], requires_grad=True)    # make a vector explicitly
         self._alpha = torch.exp(self._log_alpha.detach())
         self.alpha_optimizer = self.OptimCls((self._log_alpha,),
-            lr=self.learning_rate, **self.optim_kwargs)
+            lr=alpha_learning_rate, **self.optim_kwargs)
 
         self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
         if self.initial_optim_state_dict is not None:
