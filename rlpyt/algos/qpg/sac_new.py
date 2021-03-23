@@ -106,7 +106,6 @@ class SACNew(RlAlgorithm):
             lr=self.learning_rate, **self.optim_kwargs)
         self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
-
         if self.fixed_alpha is False:
             self._log_alpha = torch.tensor(np.log([self.initial_alpha]), requires_grad=True)
             self._alpha = torch.exp(self._log_alpha.detach())
