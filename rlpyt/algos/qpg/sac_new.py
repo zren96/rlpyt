@@ -28,7 +28,7 @@ SamplesToBufferTl = namedarraytuple("SamplesToBufferTl",
 
 class SACNew(RlAlgorithm):
     """Soft actor critic algorithm, training from a replay buffer."""
-    # Assume adaptive alpha; no bootstrap limit; no policy_output_regularization; reparameterize=True; target_entropy='auto'
+    # Assume no bootstrap limit; no policy_output_regularization; reparameterize=True; target_entropy='auto'
 
     opt_info_fields = tuple(f for f in OptInfo._fields)  # copy
 
@@ -42,7 +42,8 @@ class SACNew(RlAlgorithm):
             target_update_tau=0.005,  # tau=1 for hard update.
             target_update_interval=1,  # 1000 for hard update, 1 for soft.
             actor_update_interval=1,
-            initial_alpha=1.0,
+            initial_alpha=1,
+            fixed_alpha=False,
             learning_rate=3e-4,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
@@ -106,10 +107,15 @@ class SACNew(RlAlgorithm):
         self.q_optimizer = self.OptimCls(self.agent.q_parameters(),
             lr=self.learning_rate, **self.optim_kwargs)
 
-        self._log_alpha = torch.tensor([np.log(self.initial_alpha)], requires_grad=True)    # make a vector explicitly
-        self._alpha = torch.exp(self._log_alpha.detach())
-        self.alpha_optimizer = self.OptimCls((self._log_alpha,),
-            lr=self.learning_rate, **self.optim_kwargs)
+        if self.fixed_alpha is False:
+            self._log_alpha = torch.tensor(np.log([self.initial_alpha]), requires_grad=True)
+            self._alpha = torch.exp(self._log_alpha.detach())
+            self.alpha_optimizer = self.OptimCls((self._log_alpha,),
+                lr=self.learning_rate, **self.optim_kwargs)
+        else:
+            self._log_alpha = torch.tensor([np.log(self.initial_alpha)])
+            self._alpha = torch.tensor([self.initial_alpha])
+            self.alpha_optimizer = None
 
         self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
         if self.initial_optim_state_dict is not None:
@@ -201,8 +207,11 @@ class SACNew(RlAlgorithm):
             pi_losses = self._alpha * log_pi - min_log_target - prior_log_pi
             pi_loss = valid_mean(pi_losses, valid)
 
-            alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
-            alpha_loss = valid_mean(alpha_losses, valid)
+            if self.fixed_alpha is False:
+                alpha_losses = - self._log_alpha * (log_pi.detach() + self.target_entropy)
+                alpha_loss = valid_mean(alpha_losses, valid)
+            else:
+                alpha_loss = None
             #####
 
             # torch.autograd.set_detect_anomaly(True)
@@ -214,11 +223,12 @@ class SACNew(RlAlgorithm):
             if self.update_counter % self.actor_update_interval == 0:
                 self.pi_optimizer.step()
 
-            self.alpha_optimizer.zero_grad()
-            alpha_loss.backward()
-            if self.update_counter % self.actor_update_interval == 0:
-                self.alpha_optimizer.step()
-            self._alpha = torch.exp(self._log_alpha.detach())
+            if alpha_loss is not None:
+                self.alpha_optimizer.zero_grad()
+                alpha_loss.backward()
+                if self.update_counter % self.actor_update_interval == 0:
+                    self.alpha_optimizer.step()
+                self._alpha = torch.exp(self._log_alpha.detach())
 
             losses = (q_loss, pi_loss, alpha_loss)
             values = tuple(val.detach() for val in (q1, q2, pi_mean,pi_log_std))
