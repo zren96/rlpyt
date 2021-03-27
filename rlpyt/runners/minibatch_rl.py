@@ -13,7 +13,7 @@ from rlpyt.utils.logging import logger
 from rlpyt.utils.prog_bar import ProgBarCounter
 
 
-class MinibatchRlBase(BaseRunner):
+class MinibatchRlBase(BaseRunner):  #* BaseRunner not implemented
     """
     Implements startup, logging, and agent checkpointing functionality, to be
     called in the `train()` method of the subclassed runner.  Subclasses will
@@ -37,6 +37,7 @@ class MinibatchRlBase(BaseRunner):
             agent,
             sampler,
             n_steps,
+            min_save_args=None, #!
             seed=None,
             affinity=None,
             log_interval_steps=1e5,
@@ -303,19 +304,25 @@ class MinibatchRlEval(MinibatchRlBase):
         """
         best_eval_reward_avg = -1e5
         best_itr = 0
+        initial_pi_loss = 0
+        initial_q_loss = 0
 
         n_itr = self.startup()
         with logger.prefix(f"itr #0 "):
             eval_traj_infos, eval_time = self.evaluate_agent(0)
             self.log_diagnostics(0, eval_traj_infos, eval_time)
+
         for itr in range(n_itr):
             logger.set_iteration(itr)
+
             with logger.prefix(f"itr #{itr} "):
+
                 self.agent.sample_mode(itr)
                 samples, traj_infos = self.sampler.obtain_samples(itr)
                 self.agent.train_mode(itr)
                 opt_info = self.algo.optimize_agent(itr, samples)
                 self.store_diagnostics(itr, traj_infos, opt_info)
+
                 if (itr + 1) % self.log_interval_itrs == 0:
                     eval_traj_infos, eval_time = self.evaluate_agent(itr)
                     eval_reward_avg = self.get_eval_reward(eval_traj_infos)
