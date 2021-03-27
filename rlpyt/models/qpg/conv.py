@@ -111,8 +111,11 @@ class Encoder(torch.nn.Module):
                 kernel_sizes=[5, 3, 3],
                 strides=[1, 1, 1],
                 paddings=[2, 1, 1],
+                spatial_softmax=False,
                 ):
         super().__init__()
+        self.observation_shape = observation_shape
+        self.channels = channels
         self.conv = Conv2dModel(    # keep image dim
             in_channels=observation_shape[0],
             channels=channels,
@@ -121,16 +124,24 @@ class Encoder(torch.nn.Module):
             paddings=paddings,
             use_maxpool=False,
         )   # image -> conv (ReLU)
+        # print(self.conv.conv_out_size(h=48, w=48))
 
         # Spatial softmax, output mum_channel x 2d pos
-        self.sm = SpatialSoftmax(height=observation_shape[1], 
+        self.spatial_softmax = spatial_softmax
+        if spatial_softmax:
+            self.sm = SpatialSoftmax(height=observation_shape[1], 
                                 width=observation_shape[2], 
                                 channel=channels[-1])
 
     def forward_conv(self, image):
         lead_dim, T, B, img_shape = infer_leading_dims(image, 3)
         image = image.view(T * B, *img_shape)
-        conv_out = self.sm(self.conv(image))
+        conv_out = self.conv(image) # 1 x channel(64) x 48 x 48
+        # print(conv_out.shape)
+        # while 1:
+        #     continue
+        if self.spatial_softmax:
+            conv_out = self.sm(conv_out)
         return conv_out
 
     def forward(self, image, detach=False):
@@ -138,6 +149,13 @@ class Encoder(torch.nn.Module):
         if detach:
             out = out.detach()
         return out
+
+    def output_size(self):
+        if self.spatial_softmax:
+            return self.channels[-1]*2
+        else:
+            return self.conv.conv_out_size(h=self.observation_shape[1], 
+                                            w=self.observation_shape[2])
 
     def copy_conv_weights_from(self, source):
         """Tie convolutional layers"""
@@ -163,7 +181,7 @@ class PiConvTiedModel(torch.nn.Module):
                                 paddings)
 
         self.mlp = MlpModel(
-            input_size=channels[-1]*2,    # 2d, and then two images
+            input_size=self.encoder.output_size(),    # 2d, and then two images
             hidden_sizes=hidden_sizes,
             output_size=action_size * 2,
         )
@@ -201,12 +219,12 @@ class QDoubleConvTiedModel(torch.nn.Module):
                                 paddings)
 
         self.q1_head = MlpModel(
-                input_size=channels[-1]*2+action_size,
+                input_size=self.encoder.output_size()+action_size,
                 hidden_sizes=hidden_sizes,
                 output_size=1,
             )
         self.q2_head = MlpModel(
-                input_size=channels[-1]*2+action_size,
+                input_size=self.encoder.output_size()+action_size,
                 hidden_sizes=hidden_sizes,
                 output_size=1,
             )

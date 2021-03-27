@@ -353,6 +353,9 @@ def save_itr_params(itr, params, save_cur):
             best_file_name = osp.join(get_snapshot_dir(), 'itr_%d_best_params.pkl' % itr)
             torch.save(params, best_file_name)
 
+        #! Toy
+        torch.save(params, osp.join(get_snapshot_dir(), 'itr_%d_params.pkl' % itr))
+
         # if _snapshot_mode == 'all': # never used
         #     file_name = osp.join(get_snapshot_dir(), 'itr_%d.pkl' % itr)
         # elif _snapshot_mode == 'last':

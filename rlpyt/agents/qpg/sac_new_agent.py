@@ -29,6 +29,8 @@ class SacNewAgent(BaseAgent):
             model_kwargs=None,
             q_model_kwargs=None,
             initial_model_state_dict=None,  # All models.
+            load_q_model=True,
+            tie_weights=True,
             action_squash=2.,  # Max magnitude (or None).
             pretrain_std=0.75,  # With squash 0.75 is near uniform.
             saliency_dir=None,
@@ -66,9 +68,9 @@ class SacNewAgent(BaseAgent):
             max_std=np.exp(MAX_LOG_STD),
         )
 
-        #* Tie weights
-        self.model.encoder.copy_conv_weights_from(self.q_model.encoder)
-
+        # Tie weights
+        if self.tie_weights:
+            self.model.encoder.copy_conv_weights_from(self.q_model.encoder)
 
     def to_device(self, cuda_idx=None):
         super().to_device(cuda_idx)
@@ -158,7 +160,12 @@ class SacNewAgent(BaseAgent):
             logger.log(f"Agent at itr {itr}, sample std: {self.pretrain_std}")
         if itr == self.min_itr_learn:
             logger.log(f"Agent at itr {itr}, sample std: learned.")
-        std = None if itr >= self.min_itr_learn else self.pretrain_std
+        if self.initial_model_state_dict is not None:
+            std = None  # retraining
+        elif itr >= self.min_itr_learn:
+            std = None
+        else:
+            std = self.pretrain_std
         self.distribution.set_std(std)  # If None: std from policy dist_info.
 
     def eval_mode(self, itr):
@@ -175,5 +182,6 @@ class SacNewAgent(BaseAgent):
 
     def load_state_dict(self, state_dict):
         self.model.load_state_dict(state_dict["model"])
-        self.q_model.load_state_dict(state_dict["q_model"])
-        self.target_q_model.load_state_dict(state_dict["target_q_model"])
+        if self.load_q_model:
+            self.q_model.load_state_dict(state_dict["q_model"])
+            self.target_q_model.load_state_dict(state_dict["target_q_model"])
