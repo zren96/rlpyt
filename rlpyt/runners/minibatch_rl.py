@@ -328,6 +328,7 @@ class MinibatchRlEval(MinibatchRlBase):
 				# Determine if saving the params
 				pi_loss = opt_info.piLoss    
 				q_loss = opt_info.qLoss
+				save_cur = False
 				if len(pi_loss) > 0:
 					pi_loss = np.mean(pi_loss)
 					q_loss = np.mean(q_loss)
@@ -335,10 +336,9 @@ class MinibatchRlEval(MinibatchRlBase):
 						initial_pi_loss = pi_loss
 						initial_q_loss = q_loss
 					# print(pi_loss, q_loss)
-				if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
-					save_cur = True 
-				else:
-					save_cur = False
+					if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
+						save_cur = True 
+
 				self.store_diagnostics(itr, traj_infos, opt_info)
 
 				#! It is possible that save_cur never satisfied in all itrs
