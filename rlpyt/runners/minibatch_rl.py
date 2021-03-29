@@ -302,7 +302,7 @@ class MinibatchRlEval(MinibatchRlBase):
 		``algo.optimize_agent()``.  Pauses to evaluate the agent at the
 		specified log interval.
 		"""
-		best_eval_reward_avg = -1e5
+		best_eval_reward_avg = None
 		best_itr = 0
 		initial_pi_loss = None
 		initial_q_loss = None
@@ -346,6 +346,9 @@ class MinibatchRlEval(MinibatchRlBase):
 					eval_traj_infos, eval_time = self.evaluate_agent(itr)
 					eval_reward_avg = self.get_eval_reward(eval_traj_infos)
 					
+					if best_eval_reward_avg is None:	# Initialize
+						best_eval_reward_avg = eval_reward_avg
+     
 					# Determine if saving current snapshot
 					if save_cur and eval_reward_avg > best_eval_reward_avg:
 						best_eval_reward_avg = eval_reward_avg
