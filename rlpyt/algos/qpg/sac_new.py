@@ -52,6 +52,7 @@ class SACNew(RlAlgorithm):
             action_prior="uniform",  # or "gaussian"
             reward_scale=1,
             clip_grad_norm=1e9,
+            linear_annealing=False,
             n_step_return=1,
             updates_per_sync=1,  # For async mode only.
             ReplayBufferCls=None,  # Leave None to select by above options.
@@ -115,6 +116,14 @@ class SACNew(RlAlgorithm):
             self._log_alpha = torch.tensor([np.log(self.initial_alpha)])
             self._alpha = torch.tensor([self.initial_alpha])
             self.alpha_optimizer = None
+
+        if self.linear_annealing:
+            self.pi_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer=self.pi_optimizer,
+                lr_lambda=lambda itr: (self.n_itr - itr) / self.n_itr)
+            self.q_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer=self.q_optimizer,
+                lr_lambda=lambda itr: (self.n_itr - itr) / self.n_itr)
 
         self.target_entropy = -np.prod(self.agent.env_spaces.action.shape)
         if self.initial_optim_state_dict is not None:
@@ -197,6 +206,8 @@ class SACNew(RlAlgorithm):
             q_loss.backward()
             q_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.q_parameters(), self.clip_grad_norm)
             self.q_optimizer.step()
+            if self.linear_annealing:
+                self.q_lr_scheduler.step()
 
             # Actor, do not update conv layers
             new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs, detach_encoder=True)
@@ -221,6 +232,8 @@ class SACNew(RlAlgorithm):
             # print(self.agent.q_model.encoder.conv.conv_layers[0].weight.grad)
             if self.update_counter % self.actor_update_interval == 0:
                 self.pi_optimizer.step()
+                if self.linear_annealing:
+                    self.pi_lr_scheduler.step()
 
             if alpha_loss is not None:
                 self.alpha_optimizer.zero_grad()
