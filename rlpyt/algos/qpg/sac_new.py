@@ -118,6 +118,7 @@ class SACNew(RlAlgorithm):
             self.alpha_optimizer = None
 
         if self.linear_annealing:
+            print(self.n_itr)
             self.pi_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer=self.pi_optimizer,
                 lr_lambda=lambda itr: (self.n_itr - itr) / self.n_itr)
@@ -206,8 +207,6 @@ class SACNew(RlAlgorithm):
             q_loss.backward()
             q_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.q_parameters(), self.clip_grad_norm)
             self.q_optimizer.step()
-            if self.linear_annealing:
-                self.q_lr_scheduler.step()
 
             # Actor, do not update conv layers
             new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs, detach_encoder=True)
@@ -232,8 +231,6 @@ class SACNew(RlAlgorithm):
             # print(self.agent.q_model.encoder.conv.conv_layers[0].weight.grad)
             if self.update_counter % self.actor_update_interval == 0:
                 self.pi_optimizer.step()
-                if self.linear_annealing:
-                    self.pi_lr_scheduler.step()
 
             if alpha_loss is not None:
                 self.alpha_optimizer.zero_grad()
@@ -250,6 +247,11 @@ class SACNew(RlAlgorithm):
             self.update_counter += 1
             if self.update_counter % self.target_update_interval == 0:
                 self.agent.update_target(self.target_update_tau)
+
+        # Step every itr
+        if self.linear_annealing:
+            self.pi_lr_scheduler.step()
+            self.q_lr_scheduler.step()
 
         return opt_info
 
