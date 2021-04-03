@@ -29,9 +29,10 @@ class VisionLSTMModel(torch.nn.Module):
             ):
         """Instantiate neural net module according to inputs."""
         super().__init__()
+
         self.conv = Conv2dHeadModel(
             image_shape=observation_shape,
-            channels=channels or [8, 16],
+            channels=channels or [16, 32],
             kernel_sizes=kernel_sizes or [8, 4],
             strides=strides or [4, 2],
             paddings=paddings or [0, 1],
@@ -102,7 +103,7 @@ class VisionModel(torch.nn.Module):
             self,
             observation_shape,
             action_size,
-            fc_sizes=32,
+            fc_sizes=128,
             use_maxpool=False,
             channels=None,  # None uses default.
             kernel_sizes=None,
@@ -116,29 +117,29 @@ class VisionModel(torch.nn.Module):
         """Instantiate neural net module according to inputs."""
         super().__init__()
         self.conv = Conv2dHeadModel(
-            image_shape=[observation_shape[0]//2, observation_shape[1], observation_shape[2]],
-            channels=channels or [4, 8],
-            kernel_sizes=kernel_sizes or [8, 4],
+            image_shape=[observation_shape[0], observation_shape[1], observation_shape[2]],
+            channels=channels or [16, 32],
+            kernel_sizes=kernel_sizes or [6, 4],
             strides=strides or [4, 2],
-            paddings=paddings or [0, 1],
+            paddings=paddings or [0, 0],
             use_maxpool=use_maxpool,
             hidden_sizes=fc_sizes,  # Applies nonlinearity at end.
         )
         mu_mlp = MlpModel(
-            input_size=self.conv.output_size*2,
+            input_size=self.conv.output_size,
             hidden_sizes=fc_sizes,
             output_size=action_size,
             nonlinearity=hidden_nonlinearity,
         )
         # print(self.conv.output_size)
-        # print('Num of encoder parameters: %d' % sum(p.numel() for p in self.conv.parameters() if p.requires_grad))
-        # print('Num of encoder parameters: %d' % sum(p.numel() for p in mu_mlp.parameters() if p.requires_grad))
+        # print('Num of conv parameters: %d' % sum(p.numel() for p in self.conv.parameters() if p.requires_grad))
+        # print('Num of mlp parameters: %d' % sum(p.numel() for p in mu_mlp.parameters() if p.requires_grad))
         if mu_nonlinearity is not None:
             self.mu = torch.nn.Sequential(mu_mlp, mu_nonlinearity())
         else:
             self.mu = mu_mlp
         self.v = MlpModel(
-            input_size=self.conv.output_size*2,
+            input_size=self.conv.output_size,
             hidden_sizes=fc_sizes,
             output_size=1,
             nonlinearity=hidden_nonlinearity,
@@ -164,12 +165,7 @@ class VisionModel(torch.nn.Module):
         lead_dim, T, B, img_shape = infer_leading_dims(image, 3)
 
         image = image.view(T * B, *img_shape)
-        image_cur = image[:,:3,:,:]
-        image_prev = image[:,3:,:,:]
-
-        fc_cur_out = self.conv(image_cur)
-        fc_prev_out = self.conv(image_prev)
-        fc_out = torch.cat((fc_cur_out, fc_prev_out), dim=-1)
+        fc_out = self.conv(image)
 
         mu = self.mu(fc_out)
         v = self.v(fc_out).squeeze(-1)
