@@ -3,12 +3,11 @@ import multiprocessing as mp
 import time
 import torch.distributed
 
-from rlpyt.runners.minibatch_rl import MinibatchRl, MinibatchRlEval
+from rlpyt.runners.minibatch_rl import MinibatchRl, MinibatchRlEval, MinibatchRlEvalOnly
 from rlpyt.utils.seed import make_seed
 from rlpyt.utils.collections import AttrDict
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.synchronize import drain_queue, find_port
-
 
 ###############################################################################
 # Master
@@ -72,7 +71,7 @@ class SyncRlMixin:
         self.par = par = self.build_par_objs(world_size)
         if self.seed is None:
             self.seed = make_seed()
-        port = find_port(offset=self.affinity.get("master_cpus", [0])[0])
+        port = find_port(offset=self.affinity.get("master_cpus", [0])[0])# 29500
         backend = "gloo" if self.affinity.get("cuda_idx", None) is None else "nccl"
         workers_kwargs = [dict(
             algo=self.algo,
@@ -90,14 +89,21 @@ class SyncRlMixin:
             )
             for rank in range(1, world_size)]
         workers = [self.WorkerCls(**w_kwargs) for w_kwargs in workers_kwargs]
-        self.workers = [mp.Process(target=w.train, args=()) for w in workers]
+        # self.workers = [mp.Process(target=w.train, args=()) for w in workers]
+        self.workers = [mp.Process(target=w.eval, args=()) for w in workers]
         for w in self.workers:
             w.start()
+        # print(torch.cuda.device_count())
+        # import os
+        # os.environ["MASTER_ADDR"] = "127.0.0.1"
+        # os.environ["MASTER_PORT"] = "29500"
+        # os.environ["CUDA_VISIBLE_DEVICES"] = '1,2,3,4'
+        # print(backend, rank, world_size)
         torch.distributed.init_process_group(
             backend=backend,
             rank=rank,
             world_size=world_size,
-            init_method=f"tcp://127.0.0.1:{port}",
+            init_method=f"tcp://128.112.35.85:{port}",
         )
 
     def build_par_objs(self, world_size):
@@ -139,6 +145,20 @@ class SyncRlEval(SyncRlMixin, MinibatchRlEval):
         super().log_diagnostics(*args, **kwargs)
         self.par.barrier.wait()
 
+
+class SyncRlEvalOnly(SyncRlMixin, MinibatchRlEvalOnly):
+    """
+    Multi-process RL with offline agent performance evaluation.  Only the
+    master process runs agent evaluation.
+    """
+
+    @property
+    def WorkerCls(self):
+        return SyncWorkerEvalOnly
+
+    def log_diagnostics(self, *args, **kwargs):
+        super().log_diagnostics(*args, **kwargs)
+        self.par.barrier.wait()
 
 ###############################################################################
 # Worker
@@ -194,6 +214,17 @@ class SyncWorker(SyncWorkerMixin, MinibatchRl):
 
 
 class SyncWorkerEval(SyncWorkerMixin, MinibatchRlEval):
+
+    def store_diagnostics(self, *args, **kwargs):
+        pass
+
+    def log_diagnostics(self, *args, **kwargs):
+        self.par.barrier.wait()
+
+    def evaluate_agent(self, *args, **kwargs):
+        return None, None
+
+class SyncWorkerEvalOnly(SyncWorkerMixin, MinibatchRlEvalOnly):
 
     def store_diagnostics(self, *args, **kwargs):
         pass
