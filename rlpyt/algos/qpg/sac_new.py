@@ -118,6 +118,7 @@ class SACNew(RlAlgorithm):
             self.alpha_optimizer = None
 
         if self.linear_annealing:
+            print(self.n_itr)
             self.pi_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer=self.pi_optimizer,
                 lr_lambda=lambda itr: (self.n_itr - itr) / self.n_itr)
