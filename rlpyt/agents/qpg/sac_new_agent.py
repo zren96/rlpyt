@@ -160,9 +160,7 @@ class SacNewAgent(BaseAgent):
             logger.log(f"Agent at itr {itr}, sample std: {self.pretrain_std}")
         if itr == self.min_itr_learn:
             logger.log(f"Agent at itr {itr}, sample std: learned.")
-        if self.initial_model_state_dict is not None:
-            std = None  # retraining
-        elif itr >= self.min_itr_learn:
+        if itr >= self.min_itr_learn:
             std = None
         else:
             std = self.pretrain_std

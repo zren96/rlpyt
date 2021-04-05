@@ -45,6 +45,8 @@ class SACNew(RlAlgorithm):
             initial_alpha=1,
             fixed_alpha=False,
             learning_rate=3e-4,
+            num_itr_actor_wait=0,
+            actor_detach_encoder=True,
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
             initial_optim_state_dict=None,  # for all of them.
@@ -209,8 +211,8 @@ class SACNew(RlAlgorithm):
             self.q_optimizer.step()
 
             # Actor, do not update conv layers
-            new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs, detach_encoder=True)
-            log_target1, log_target2 = self.agent.q(*agent_inputs, new_action, detach_encoder=True)
+            new_action, log_pi, (pi_mean, pi_log_std) = self.agent.pi(*agent_inputs, detach_encoder=self.actor_detach_encoder)
+            log_target1, log_target2 = self.agent.q(*agent_inputs, new_action, detach_encoder=self.actor_detach_encoder)
             min_log_target = torch.min(log_target1, log_target2)
             prior_log_pi = self.get_action_prior(new_action.cpu())
             pi_losses = self._alpha * log_pi - min_log_target - prior_log_pi
@@ -223,13 +225,11 @@ class SACNew(RlAlgorithm):
                 alpha_loss = None
             #####
 
-            # torch.autograd.set_detect_anomaly(True)
-
             self.pi_optimizer.zero_grad()
             pi_loss.backward()
             pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.agent.pi_parameters(), self.clip_grad_norm)
             # print(self.agent.q_model.encoder.conv.conv_layers[0].weight.grad)
-            if self.update_counter % self.actor_update_interval == 0:
+            if self.update_counter % self.actor_update_interval == 0 and itr > self.num_itr_actor_wait:
                 self.pi_optimizer.step()
 
             if alpha_loss is not None:

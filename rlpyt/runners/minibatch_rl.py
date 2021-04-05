@@ -341,7 +341,7 @@ class MinibatchRlEval(MinibatchRlBase):
 
 				self.store_diagnostics(itr, traj_infos, opt_info)
 
-				#! It is possible that save_cur never satisfied in all itrs
+				# It is possible that save_cur never satisfied in all itrs, then do not update policy for this retrain
 				if (itr + 1) % self.log_interval_itrs == 0:
 					eval_traj_infos, eval_time = self.evaluate_agent(itr)
 					eval_reward_avg = self.get_eval_reward(eval_traj_infos)
@@ -357,7 +357,7 @@ class MinibatchRlEval(MinibatchRlBase):
 					else:
 						save_cur = False
 					self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
-					if itr % 10 == 0:
+					if (itr+1) % 10 == 0:
 						logger.log(f'Average eval reward: {eval_reward_avg}')
 						print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
 		self.shutdown()
