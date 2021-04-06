@@ -8,6 +8,7 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.replays.non_sequence.uniform import (UniformReplayBuffer,
     AsyncUniformReplayBuffer)
+from rlpyt.replays.non_sequence.prioritized import PrioritizedReplayBuffer
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.distributions.gaussian import Gaussian
@@ -146,7 +147,8 @@ class SACNew(RlAlgorithm):
             reward=examples["reward"],
             done=examples["done"],
         )
-        ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
+        # ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
+        ReplayCls = PrioritizedReplayBuffer # using default hyperparams
         replay_kwargs = dict(
             example=example_to_buffer,
             size=self.replay_size,

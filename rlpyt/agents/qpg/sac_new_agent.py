@@ -14,7 +14,7 @@ from rlpyt.models.utils import update_state_dict
 from rlpyt.utils.collections import namedarraytuple
 
 
-MIN_LOG_STD = -20
+MIN_LOG_STD = -10
 MAX_LOG_STD = 2
 
 AgentInfo = namedarraytuple("AgentInfo", ["dist_info"])

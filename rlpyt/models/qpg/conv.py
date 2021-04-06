@@ -179,12 +179,18 @@ class PiConvTiedModel(torch.nn.Module):
                                 kernel_sizes,
                                 strides,
                                 paddings)
-
-        self.mlp = MlpModel(
-            input_size=self.encoder.output_size(),    # 2d, and then two images
-            hidden_sizes=hidden_sizes,
-            output_size=action_size * 2,
+        self.mlp = nn.Sequential(
+                        nn.Linear(self.encoder.output_size(), hidden_sizes[0]),
+                        nn.LayerNorm(hidden_sizes[0]),
+                        nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+                        nn.ReLU(),
+                        nn.Linear(hidden_sizes[1], action_size*2),
         )
+        # self.mlp = MlpModel(
+        #     input_size=self.encoder.output_size(),    # 2d, and then two images
+        #     hidden_sizes=hidden_sizes,
+        #     output_size=action_size * 2,
+        # )
         # print('Num of conv parameters: %d' % sum(p.numel() for p in self.encoder.parameters() if p.requires_grad))
         # print('Num of mlp parameters: %d' % sum(p.numel() for p in self.mlp.parameters() if p.requires_grad))
         # while 1:
@@ -217,17 +223,30 @@ class QDoubleConvTiedModel(torch.nn.Module):
                                 kernel_sizes,
                                 strides,
                                 paddings)
-
-        self.q1_head = MlpModel(
-                input_size=self.encoder.output_size()+action_size,
-                hidden_sizes=hidden_sizes,
-                output_size=1,
-            )
-        self.q2_head = MlpModel(
-                input_size=self.encoder.output_size()+action_size,
-                hidden_sizes=hidden_sizes,
-                output_size=1,
-            )
+        self.q1_head = nn.Sequential(
+                        nn.Linear(self.encoder.output_size()+action_size, hidden_sizes[0]),
+                        nn.LayerNorm(hidden_sizes[0]),
+                        nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+                        nn.ReLU(),
+                        nn.Linear(hidden_sizes[1], 1),
+        )
+        self.q2_head = nn.Sequential(
+                        nn.Linear(self.encoder.output_size()+action_size, hidden_sizes[0]),
+                        nn.LayerNorm(hidden_sizes[0]),
+                        nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+                        nn.ReLU(),
+                        nn.Linear(hidden_sizes[1], 1),
+        )
+        # self.q1_head = MlpModel(
+        #         input_size=self.encoder.output_size()+action_size,
+        #         hidden_sizes=hidden_sizes,
+        #         output_size=1,
+        #     )
+        # self.q2_head = MlpModel(
+        #         input_size=self.encoder.output_size()+action_size,
+        #         hidden_sizes=hidden_sizes,
+        #         output_size=1,
+        #     )
 
     def forward(self, image, prev_action, prev_reward, action, detach_encoder=False):
         lead_dim, T, B, img_shape = infer_leading_dims(image, 3)
