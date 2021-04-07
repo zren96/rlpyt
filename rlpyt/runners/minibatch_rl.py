@@ -173,8 +173,6 @@ class MinibatchRlBase(BaseRunner):  #* BaseRunner not implemented
 		"""
 		Write diagnostics (including stored ones) to csv via the logger.
 		"""
-		# if itr > 0:
-		#     self.pbar.stop()
 		if itr >= self.min_itr_learn - 1:
 			self.save_itr_snapshot(itr, save_cur)
 		new_time = time.time()
@@ -311,10 +309,9 @@ class MinibatchRlEval(MinibatchRlBase):
 		min_save_q_loss_ratio = self.min_save_args['min_save_q_loss_ratio']
 
 		n_itr = self.startup()
-		with logger.prefix(f"itr #0 "):
-			eval_traj_infos, eval_time = self.evaluate_agent(0)
-			self.log_diagnostics(0, eval_traj_infos, eval_time)
-
+		# with logger.prefix(f"itr #0 "):
+			# eval_traj_infos, eval_time = self.evaluate_agent(itr=0)
+			# self.log_diagnostics(0, eval_traj_infos, eval_time)
 		for itr in range(n_itr):
 			logger.set_iteration(itr)
 
@@ -329,15 +326,16 @@ class MinibatchRlEval(MinibatchRlBase):
 				pi_loss = opt_info.piLoss    
 				q_loss = opt_info.qLoss
 				save_cur = False
-				if len(pi_loss) > 0:
+				if min_save_pi_loss_ratio is not None and len(pi_loss) > 0:
 					pi_loss = np.mean(pi_loss)
 					q_loss = np.mean(q_loss)
 					if initial_pi_loss is None:
 						initial_pi_loss = pi_loss
 						initial_q_loss = q_loss
-					# print(pi_loss, q_loss)
 					if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
 						save_cur = True 
+				else:
+					save_cur = True
 
 				self.store_diagnostics(itr, traj_infos, opt_info)
 
@@ -357,7 +355,7 @@ class MinibatchRlEval(MinibatchRlBase):
 					else:
 						save_cur = False
 					self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
-					if (itr+1) % 10 == 0:
+					if (itr + 1) % 10 == 0:
 						logger.log(f'Average eval reward: {eval_reward_avg}')
 						print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
 		self.shutdown()
@@ -376,11 +374,7 @@ class MinibatchRlEval(MinibatchRlBase):
 		"""
 		Record offline evaluation of agent performance, by ``sampler.evaluate_agent()``.
 		"""
-		# if itr > 0:
-		#     self.pbar.stop()
-
 		if itr >= self.min_itr_learn - 1 or itr == 0:
-			# logger.log("Evaluating agent...")
 			self.agent.eval_mode(itr)  # Might be agent in sampler.
 			eval_time = -time.time()
 			traj_infos = self.sampler.evaluate_agent(itr)
@@ -388,7 +382,6 @@ class MinibatchRlEval(MinibatchRlBase):
 		else:
 			traj_infos = []
 			eval_time = 0.0
-		# logger.log("Evaluation runs complete.")
 		return traj_infos, eval_time
 
 	def initialize_logging(self):

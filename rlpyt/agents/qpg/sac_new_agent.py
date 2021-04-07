@@ -26,11 +26,14 @@ class SacNewAgent(BaseAgent):
 
     def __init__(
             self,
+            ModelCls=PiConvTiedModel,
+            QModelCls=QDoubleConvTiedModel,
             model_kwargs=None,
             q_model_kwargs=None,
             initial_model_state_dict=None,  # All models.
             load_q_model=True,
             tie_weights=True,
+            load_model_after_min_steps=False,
             action_squash=2.,  # Max magnitude (or None).
             pretrain_std=0.75,  # With squash 0.75 is near uniform.
             saliency_dir=None,
@@ -40,7 +43,7 @@ class SacNewAgent(BaseAgent):
             model_kwargs = dict(hidden_sizes=[256, 256])
         if q_model_kwargs is None:
             q_model_kwargs = dict(hidden_sizes=[256, 256])
-        super().__init__(ModelCls=PiConvTiedModel, model_kwargs=model_kwargs,
+        super().__init__(ModelCls=ModelCls, model_kwargs=model_kwargs,
             initial_model_state_dict=initial_model_state_dict)
         save__init__args(locals())
         self.min_itr_learn = 0  # Get from algo.
@@ -48,18 +51,19 @@ class SacNewAgent(BaseAgent):
     def initialize(self, env_spaces, share_memory=False,
             global_B=1, env_ranks=None):
         _initial_model_state_dict = self.initial_model_state_dict
-        self.initial_model_state_dict = None  # Don't let base agent try to load.
+        self.initial_model_state_dict = None  #! Don't let base agent try to load.
         super().initialize(env_spaces, share_memory,
             global_B=global_B, env_ranks=env_ranks)
         self.initial_model_state_dict = _initial_model_state_dict
 
-        self.q_model = QDoubleConvTiedModel(**self.env_model_kwargs, **self.q_model_kwargs)
-        self.target_q_model = QDoubleConvTiedModel(**self.env_model_kwargs,
+        self.q_model = self.QModelCls(**self.env_model_kwargs, **self.q_model_kwargs)
+        self.target_q_model = self.QModelCls(**self.env_model_kwargs,
             **self.q_model_kwargs)
         self.target_q_model.load_state_dict(self.q_model.state_dict())
 
-        if self.initial_model_state_dict is not None:
+        if self.initial_model_state_dict is not None and not self.load_model_after_min_steps:
             self.load_state_dict(self.initial_model_state_dict)
+
         assert len(env_spaces.action.shape) == 1
         self.distribution = Gaussian(
             dim=env_spaces.action.shape[0],
@@ -67,8 +71,7 @@ class SacNewAgent(BaseAgent):
             min_std=np.exp(MIN_LOG_STD),
             max_std=np.exp(MAX_LOG_STD),
         )
-
-        # Tie weights
+        # Tie weights (need to make sure False if not using encoder)
         if self.tie_weights:
             self.model.encoder.copy_conv_weights_from(self.q_model.encoder)
 

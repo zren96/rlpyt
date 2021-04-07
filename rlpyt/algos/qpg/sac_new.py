@@ -38,6 +38,8 @@ class SACNew(RlAlgorithm):
             discount=0.99,
             batch_size=256,
             min_steps_learn=int(1e4),
+            replay_fix_ratio=0.1,
+            load_model_after_min_steps=False,
             replay_size=int(1e6),
             replay_ratio=256,  # data_consumption / data_generation
             target_update_tau=0.005,  # tau=1 for hard update.
@@ -121,7 +123,6 @@ class SACNew(RlAlgorithm):
             self.alpha_optimizer = None
 
         if self.linear_annealing:
-            print(self.n_itr)
             self.pi_lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer=self.pi_optimizer,
                 lr_lambda=lambda itr: (self.n_itr - itr) / self.n_itr)
@@ -147,12 +148,13 @@ class SACNew(RlAlgorithm):
             reward=examples["reward"],
             done=examples["done"],
         )
-        # ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
-        ReplayCls = PrioritizedReplayBuffer # using default hyperparams
+        ReplayCls = AsyncUniformReplayBuffer if async_ else UniformReplayBuffer
+        # ReplayCls = PrioritizedReplayBuffer # using default hyperparams
         replay_kwargs = dict(
             example=example_to_buffer,
             size=self.replay_size,
             B=batch_spec.B,
+            fix_ratio=self.replay_fix_ratio,
             n_step_return=self.n_step_return,
             initial_replay_buffer_dict=self.initial_replay_buffer_dict,
         )
@@ -177,6 +179,8 @@ class SACNew(RlAlgorithm):
         opt_info = OptInfo(*([] for _ in range(len(OptInfo._fields))))
         if itr < self.min_itr_learn:
             return opt_info
+        elif itr == self.min_itr_learn and self.load_model_after_min_steps:
+            self.agent.load_state_dict(self.agent.initial_model_state_dict)
 
         for _ in range(self.updates_per_optimize):
             samples_r = self.replay_buffer.sample_batch(self.batch_size)
@@ -254,7 +258,6 @@ class SACNew(RlAlgorithm):
         if self.linear_annealing:
             self.pi_lr_scheduler.step()
             self.q_lr_scheduler.step()
-
         return opt_info
 
     def samples_to_buffer(self, samples):

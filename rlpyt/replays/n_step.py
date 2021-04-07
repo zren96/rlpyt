@@ -38,7 +38,7 @@ class BaseNStepReturnBuffer(BaseReplayBuffer):
 
     """
 
-    def __init__(self, example, size, B, initial_replay_buffer_dict, discount=1, n_step_return=1):
+    def __init__(self, example, size, B, initial_replay_buffer_dict, discount=1, n_step_return=1, fix_ratio=0.1):
         self.T = T = math.ceil(size / B)
         self.B = B
         self.size = T * B
@@ -62,6 +62,10 @@ class BaseNStepReturnBuffer(BaseReplayBuffer):
         self.off_backward = n_step_return  # Current invalid samples.
         self.off_forward = 1  # i.e. current cursor, prev_action overwritten.
 
+        #!
+        self.fix_T = math.ceil(self.size*fix_ratio/B)
+        # print(self.fix_T, B)
+
     def append_samples(self, samples):
         """Write the samples into the buffer and advance the time cursor.
         Handle wrapping of the cursor if necessary (boundary doesn't need to
@@ -70,15 +74,26 @@ class BaseNStepReturnBuffer(BaseReplayBuffer):
         T, B = get_leading_dims(samples, n_dim=2)  # samples.env.reward.shape[:2]
         assert B == self.B
         t = self.t
+
+        #! Now wrapping, assuming we have fix_size filled, so wrap above fix_size
+        t_adv = 0
         if t + T > self.T:  # Wrap.
-            idxs = np.arange(t, t + T) % self.T
+            # idxs = np.arange(t, t + T) % self.T
+            num_miss = t + T - self.T
+            idxs = np.concatenate((np.arange(t, self.T), 
+                                   np.arange(self.fix_T, self.fix_T+num_miss)))
+            # print(len(idxs), t, T, self.T, num_miss)
+            t_adv = self.fix_T
         else:
             idxs = slice(t, t + T)
         self.samples[idxs] = samples
+
         self.compute_returns(T)
         if not self._buffer_full and t + T >= self.T:
-            self._buffer_full = True  # Only changes on first around.
-        self.t = (t + T) % self.T
+            self._buffer_full = True  # Only changes on first around.\
+
+        #! similarly here
+        self.t = (t + T) % self.T + t_adv
         return T, idxs  # Pass these on to subclass.
 
     def compute_returns(self, T):
