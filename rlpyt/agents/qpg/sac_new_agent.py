@@ -182,6 +182,8 @@ class SacNewAgent(BaseAgent):
         )
 
     def load_state_dict(self, state_dict):
+        if self.initial_model_state_dict is None:
+            return
         self.model.load_state_dict(state_dict["model"])
         if self.load_q_model:
             self.q_model.load_state_dict(state_dict["q_model"])
