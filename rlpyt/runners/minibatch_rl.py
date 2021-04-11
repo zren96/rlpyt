@@ -348,11 +348,18 @@ class MinibatchRlEval(MinibatchRlBase):
 					eval_reward_avg = self.get_eval_reward(eval_traj_infos)
 				
 					# Get running average
-					eval_reward_avg_all += [eval_reward_avg]				
+					eval_reward_avg_all += [eval_reward_avg]
+					eval_reward_window = eval_reward_avg_all[-5:]
 					if len(eval_reward_avg_all) >= 5:
-						running_avg = np.mean(eval_reward_avg_all[-5:])
+						running_avg = np.mean(eval_reward_window)
 					else:
 						running_avg = 0	# dummy
+					
+					# Get running std
+					s0 = sum(1 for a in eval_reward_window)
+					s1 = sum(a for a in eval_reward_window)
+					s2 = sum(a*a for a in eval_reward_window)
+					running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0 - 1)))
 
 					if ini_eval_reward_avg is None:
 						ini_eval_reward_avg = eval_reward_avg
@@ -360,7 +367,7 @@ class MinibatchRlEval(MinibatchRlBase):
 						best_eval_reward_avg = eval_reward_avg
      
 					# Determine if saving current snapshot
-					if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg:
+					if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg and running_std < 40:
 						best_eval_reward_avg = eval_reward_avg
 						best_itr = itr
 						save_cur = True
