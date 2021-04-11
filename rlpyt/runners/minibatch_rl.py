@@ -301,12 +301,15 @@ class MinibatchRlEval(MinibatchRlBase):
 		specified log interval.
 		"""
 		best_eval_reward_avg = None
+		ini_eval_reward_avg = None
 		best_itr = 0
-		initial_pi_loss = None
-		initial_q_loss = None
-		min_save_itr = self.min_save_args['min_save_itr']
-		min_save_pi_loss_ratio = self.min_save_args['min_save_pi_loss_ratio']
-		min_save_q_loss_ratio = self.min_save_args['min_save_q_loss_ratio']
+		# initial_pi_loss = None
+		# initial_q_loss = None
+		# min_save_itr = self.min_save_args['min_save_itr']
+		# min_save_pi_loss_ratio = self.min_save_args['min_save_pi_loss_ratio']
+		# min_save_q_loss_ratio = self.min_save_args['min_save_q_loss_ratio']
+
+		eval_reward_avg_all = []
 
 		n_itr = self.startup()
 		# with logger.prefix(f"itr #0 "):
@@ -322,20 +325,20 @@ class MinibatchRlEval(MinibatchRlBase):
 				self.agent.train_mode(itr)
 				opt_info = self.algo.optimize_agent(itr, samples)
 			
-				# Determine if saving the params
-				pi_loss = opt_info.piLoss    
-				q_loss = opt_info.qLoss
 				save_cur = False
-				if min_save_pi_loss_ratio is not None and len(pi_loss) > 0:
-					pi_loss = np.mean(pi_loss)
-					q_loss = np.mean(q_loss)
-					if initial_pi_loss is None:
-						initial_pi_loss = pi_loss
-						initial_q_loss = q_loss
-					if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
-						save_cur = True 
-				else:
-					save_cur = True
+				# Determine if saving the params
+				# pi_loss = opt_info.piLoss    
+				# q_loss = opt_info.qLoss
+				# if min_save_pi_loss_ratio is not None and len(pi_loss) > 0:
+				# 	pi_loss = np.mean(pi_loss)
+				# 	q_loss = np.mean(q_loss)
+				# 	if initial_pi_loss is None:
+				# 		initial_pi_loss = pi_loss
+				# 		initial_q_loss = q_loss
+				# 	if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
+				# 		save_cur = True 
+				# else:
+				# 	save_cur = True
 
 				self.store_diagnostics(itr, traj_infos, opt_info)
 
@@ -343,17 +346,25 @@ class MinibatchRlEval(MinibatchRlBase):
 				if (itr + 1) % self.log_interval_itrs == 0:
 					eval_traj_infos, eval_time = self.evaluate_agent(itr)
 					eval_reward_avg = self.get_eval_reward(eval_traj_infos)
-					
+				
+					# Get running average
+					eval_reward_avg_all += [eval_reward_avg]				
+					if len(eval_reward_avg_all) >= 5:
+						running_avg = np.mean(eval_reward_avg_all[-5:])
+					else:
+						running_avg = 0	# dummy
+
+					if ini_eval_reward_avg is None:
+						ini_eval_reward_avg = eval_reward_avg
 					if best_eval_reward_avg is None:	# Initialize
 						best_eval_reward_avg = eval_reward_avg
      
 					# Determine if saving current snapshot
-					if save_cur and eval_reward_avg > best_eval_reward_avg:
+					if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg:
 						best_eval_reward_avg = eval_reward_avg
 						best_itr = itr
 						save_cur = True
-					else:
-						save_cur = False
+
 					self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
 					if (itr + 1) % 10 == 0:
 						logger.log(f'Average eval reward: {eval_reward_avg}')
