@@ -300,26 +300,27 @@ class MinibatchRlEval(MinibatchRlBase):
 		``algo.optimize_agent()``.  Pauses to evaluate the agent at the
 		specified log interval.
 		"""
-		best_eval_reward_avg = None
-		ini_eval_reward_avg = None
 		best_itr = 0
 		# initial_pi_loss = None
 		# initial_q_loss = None
 		# min_save_itr = self.min_save_args['min_save_itr']
 		# min_save_pi_loss_ratio = self.min_save_args['min_save_pi_loss_ratio']
 		# min_save_q_loss_ratio = self.min_save_args['min_save_q_loss_ratio']
-
 		eval_reward_avg_all = []
 
 		n_itr = self.startup()
-		# with logger.prefix(f"itr #0 "):
-			# eval_traj_infos, eval_time = self.evaluate_agent(itr=0)
+
+		# Evaluate first - initialize initial and best eval reward (before running random exploration)
+		with logger.prefix(f"itr eval"):
+			eval_traj_infos, eval_time = self.evaluate_agent(itr=0)
+			ini_eval_reward_avg = self.get_eval_reward(eval_traj_infos)
+			best_eval_reward_avg = ini_eval_reward_avg
 			# self.log_diagnostics(0, eval_traj_infos, eval_time)
+
 		for itr in range(n_itr):
 			logger.set_iteration(itr)
 
 			with logger.prefix(f"itr #{itr} "):
-
 				self.agent.sample_mode(itr)
 				samples, traj_infos = self.sampler.obtain_samples(itr)
 				self.agent.train_mode(itr)
@@ -340,6 +341,11 @@ class MinibatchRlEval(MinibatchRlBase):
 				# else:
 				# 	save_cur = True
 
+				# Find if in min_itr_learn (random exploration using bad policy)
+				if len(opt_info.piLoss) == 0:
+					min_itr_learn = True
+				else:
+					min_itr_learn = False
 				self.store_diagnostics(itr, traj_infos, opt_info)
 
 				# It is possible that save_cur never satisfied in all itrs, then do not update policy for this retrain
@@ -347,30 +353,27 @@ class MinibatchRlEval(MinibatchRlBase):
 					eval_traj_infos, eval_time = self.evaluate_agent(itr)
 					eval_reward_avg = self.get_eval_reward(eval_traj_infos)
 				
-					# Get running average
-					eval_reward_avg_all += [eval_reward_avg]
-					eval_reward_window = eval_reward_avg_all[-5:]
-					if len(eval_reward_avg_all) >= 5:
-						running_avg = np.mean(eval_reward_window)
-					else:
-						running_avg = 0	# dummy
-					
-					# Get running std
-					s0 = sum(1 for a in eval_reward_window)
-					s1 = sum(a for a in eval_reward_window)
-					s2 = sum(a*a for a in eval_reward_window)
-					running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0 - 1)))
-
-					if ini_eval_reward_avg is None:
-						ini_eval_reward_avg = eval_reward_avg
-					if best_eval_reward_avg is None:	# Initialize
-						best_eval_reward_avg = eval_reward_avg
-     
-					# Determine if saving current snapshot
-					if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg and running_std < 40:
-						best_eval_reward_avg = eval_reward_avg
-						best_itr = itr
-						save_cur = True
+					# Do not save at initial itrs
+					if not min_itr_learn:
+						# Get running average
+						eval_reward_avg_all += [eval_reward_avg]
+						eval_reward_window = eval_reward_avg_all[-5:]
+						if len(eval_reward_avg_all) >= 5:
+							running_avg = np.mean(eval_reward_window)
+						else:
+							running_avg = -1000	# dummy
+						
+						# Get running std
+						s0 = sum(1 for a in eval_reward_window)
+						s1 = sum(a for a in eval_reward_window)
+						s2 = sum(a*a for a in eval_reward_window)
+						running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0 - 1)))
+		
+						# Determine if saving current snapshot
+						if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg and running_std < 40:
+							best_eval_reward_avg = eval_reward_avg
+							best_itr = itr
+							save_cur = True
 
 					self.log_diagnostics(itr, eval_traj_infos, eval_time, save_cur)
 					if (itr + 1) % 10 == 0:
