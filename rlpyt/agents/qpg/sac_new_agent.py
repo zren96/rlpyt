@@ -21,6 +21,11 @@ AgentInfo = namedarraytuple("AgentInfo", ["dist_info"])
 Models = namedtuple("Models", ["pi", "q"])
 
 
+def weight_reset(m):
+    reset_parameters = getattr(m, "reset_parameters", None)
+    if callable(reset_parameters):
+        m.reset_parameters()
+
 class SacNewAgent(BaseAgent):
     """Agent for SAC algorithm, including action-squashing, using twin Q-values."""
 
@@ -181,10 +186,17 @@ class SacNewAgent(BaseAgent):
             target_q_model=self.target_q_model.state_dict(),
         )
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict=None):
         if self.initial_model_state_dict is None:
             return
+        if state_dict is None:
+            state_dict = self.initial_model_state_dict
         self.model.load_state_dict(state_dict["model"])
         if self.load_q_model:
             self.q_model.load_state_dict(state_dict["q_model"])
             self.target_q_model.load_state_dict(state_dict["target_q_model"])
+
+    def reset_model(self):
+        self.model.apply(weight_reset)
+        self.q_model.apply(weight_reset)
+        self.target_q_model.apply(weight_reset)

@@ -38,6 +38,7 @@ class MinibatchRlBase(BaseRunner):  #* BaseRunner not implemented
 			sampler,
 			n_steps,
 			min_save_args=None, #!
+			running_std_thres=40, #!
 			seed=None,
 			affinity=None,
 			log_interval_steps=1e5,
@@ -310,12 +311,16 @@ class MinibatchRlEval(MinibatchRlBase):
 
 		n_itr = self.startup()
 
-		# Evaluate first - initialize initial and best eval reward (before running random exploration)
+		# Evaluate first - initialize initial and best eval reward (before running random exploration) - load policy first, and then reset
 		with logger.prefix(f"itr eval"):
+			self.agent.load_state_dict()
 			eval_traj_infos, eval_time = self.evaluate_agent(itr=0)
 			ini_eval_reward_avg = self.get_eval_reward(eval_traj_infos)
 			best_eval_reward_avg = ini_eval_reward_avg
 			# self.log_diagnostics(0, eval_traj_infos, eval_time)
+			self.agent.reset_model()
+			print(f'Initial eval reward: {ini_eval_reward_avg}')
+			logger.log(f'Initial eval reward: {ini_eval_reward_avg}')
 
 		for itr in range(n_itr):
 			logger.set_iteration(itr)
@@ -327,20 +332,6 @@ class MinibatchRlEval(MinibatchRlBase):
 				opt_info = self.algo.optimize_agent(itr, samples)
 			
 				save_cur = False
-				# Determine if saving the params
-				# pi_loss = opt_info.piLoss    
-				# q_loss = opt_info.qLoss
-				# if min_save_pi_loss_ratio is not None and len(pi_loss) > 0:
-				# 	pi_loss = np.mean(pi_loss)
-				# 	q_loss = np.mean(q_loss)
-				# 	if initial_pi_loss is None:
-				# 		initial_pi_loss = pi_loss
-				# 		initial_q_loss = q_loss
-				# 	if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
-				# 		save_cur = True 
-				# else:
-				# 	save_cur = True
-
 				# Find if in min_itr_learn (random exploration using bad policy)
 				if len(opt_info.piLoss) == 0:
 					min_itr_learn = True
@@ -355,9 +346,10 @@ class MinibatchRlEval(MinibatchRlBase):
 				
 					# Do not save at initial itrs
 					if not min_itr_learn:
-						# Get running average
 						eval_reward_avg_all += [eval_reward_avg]
 						eval_reward_window = eval_reward_avg_all[-5:]
+
+						# Get running average
 						if len(eval_reward_avg_all) >= 5:
 							running_avg = np.mean(eval_reward_window)
 						else:
@@ -367,10 +359,10 @@ class MinibatchRlEval(MinibatchRlBase):
 						s0 = sum(1 for a in eval_reward_window)
 						s1 = sum(a for a in eval_reward_window)
 						s2 = sum(a*a for a in eval_reward_window)
-						running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0 - 1)))
+						running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0-1)))
 		
 						# Determine if saving current snapshot
-						if (running_avg-ini_eval_reward_avg) > 10 and eval_reward_avg > best_eval_reward_avg and running_std < 40:
+						if (running_avg-ini_eval_reward_avg) > 0 and eval_reward_avg > best_eval_reward_avg and running_std < self.running_std_thres:
 							best_eval_reward_avg = eval_reward_avg
 							best_itr = itr
 							save_cur = True
@@ -381,6 +373,20 @@ class MinibatchRlEval(MinibatchRlBase):
 						print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
 		self.shutdown()
 		return best_itr # so can easily get the name of best policy
+
+		# Determine if saving the params
+		# pi_loss = opt_info.piLoss    
+		# q_loss = opt_info.qLoss
+		# if min_save_pi_loss_ratio is not None and len(pi_loss) > 0:
+		# 	pi_loss = np.mean(pi_loss)
+		# 	q_loss = np.mean(q_loss)
+		# 	if initial_pi_loss is None:
+		# 		initial_pi_loss = pi_loss
+		# 		initial_q_loss = q_loss
+		# 	if itr > min_save_itr and pi_loss < initial_pi_loss*min_save_pi_loss_ratio and q_loss < initial_q_loss*min_save_q_loss_ratio:
+		# 		save_cur = True 
+		# else:
+		# 	save_cur = True
 
 	def get_eval_reward(self, traj_infos):
 		"""
