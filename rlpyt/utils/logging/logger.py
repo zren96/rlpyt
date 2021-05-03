@@ -339,15 +339,15 @@ def pop_prefix():
 def save_itr_params(itr, params, save_cur):
     if _snapshot_dir:
         # Always save the first one
-        if itr == 0:
-            torch.save(params, osp.join(get_snapshot_dir(), 'initial_params.pkl'))
+        # if itr == 0:
+        #     torch.save(params, osp.join(get_snapshot_dir(), 'initial_params.pkl'))
         
         # Always save most recent one
-        prev_last_file = glob.glob(get_snapshot_dir()+'/*_last_params.pkl')
-        if len(prev_last_file) > 0:
-            os.remove(prev_last_file[0])
-        last_file_name = osp.join(get_snapshot_dir(), 'itr_%d_last_params.pkl' % itr)
-        torch.save(params, last_file_name)
+        # prev_last_file = glob.glob(get_snapshot_dir()+'/*_last_params.pkl')
+        # if len(prev_last_file) > 0:
+        #     os.remove(prev_last_file[0])
+        # last_file_name = osp.join(get_snapshot_dir(), 'itr_%d_last_params.pkl' % itr)
+        # torch.save(params, last_file_name)
 
         # Save best one
         if save_cur:

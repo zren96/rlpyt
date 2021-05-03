@@ -316,11 +316,14 @@ class MinibatchRlEval(MinibatchRlBase):
 			self.agent.load_state_dict()
 			eval_traj_infos, eval_time = self.evaluate_agent(itr=0)
 			ini_eval_reward_avg = self.get_eval_reward(eval_traj_infos)
-			best_eval_reward_avg = ini_eval_reward_avg
 			# self.log_diagnostics(0, eval_traj_infos, eval_time)
 			self.agent.reset_model()
 			print(f'Initial eval reward: {ini_eval_reward_avg}')
 			logger.log(f'Initial eval reward: {ini_eval_reward_avg}')
+
+			# Initialize best reward
+			best_eval_reward_avg = ini_eval_reward_avg
+			# best_eval_reward_avg = -1000	# dummy
 
 		for itr in range(n_itr):
 			logger.set_iteration(itr)
@@ -363,6 +366,7 @@ class MinibatchRlEval(MinibatchRlBase):
 		
 						# Determine if saving current snapshot
 						if (running_avg-ini_eval_reward_avg) > 0 and eval_reward_avg > best_eval_reward_avg and running_std < self.running_std_thres:
+						# if eval_reward_avg > best_eval_reward_avg:
 							best_eval_reward_avg = eval_reward_avg
 							best_itr = itr
 							save_cur = True
@@ -372,7 +376,7 @@ class MinibatchRlEval(MinibatchRlBase):
 						logger.log(f'Average eval reward: {eval_reward_avg}')
 						print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
 		self.shutdown()
-		return best_itr # so can easily get the name of best policy
+		return best_itr
 
 		# Determine if saving the params
 		# pi_loss = opt_info.piLoss    
