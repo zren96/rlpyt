@@ -39,6 +39,7 @@ class MinibatchRlBase(BaseRunner):  #* BaseRunner not implemented
 			n_steps,
 			min_save_args=None, #!
 			running_std_thres=40, #!
+			running_window_size=3, #!
 			seed=None,
 			affinity=None,
 			log_interval_steps=1e5,
@@ -350,10 +351,10 @@ class MinibatchRlEval(MinibatchRlBase):
 					# Do not save at initial itrs
 					if not min_itr_learn:
 						eval_reward_avg_all += [eval_reward_avg]
-						eval_reward_window = eval_reward_avg_all[-5:]
+						eval_reward_window = eval_reward_avg_all[-self.running_window_size:]
 
 						# Get running average
-						if len(eval_reward_avg_all) >= 5:
+						if len(eval_reward_avg_all) >= self.running_window_size:
 							running_avg = np.mean(eval_reward_window)
 						else:
 							running_avg = -1000	# dummy
