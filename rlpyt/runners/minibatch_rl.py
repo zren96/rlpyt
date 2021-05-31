@@ -295,7 +295,7 @@ class MinibatchRlEval(MinibatchRlBase):
 
 	_eval = True
 
-	def train(self, return_buffer=False):
+	def train(self, return_buffer=False, check_running=True):
 		"""
 		Performs startup, evaluates the initial agent, then loops by
 		alternating between ``sampler.obtain_samples()`` and
@@ -366,8 +366,12 @@ class MinibatchRlEval(MinibatchRlBase):
 						running_std = np.sqrt((s0 * s2 - s1 * s1)/(s0 * (s0-1)))
 		
 						# Determine if saving current snapshot
-						if (running_avg-ini_eval_reward_avg) > 0 and eval_reward_avg > best_eval_reward_avg and running_std < self.running_std_thres:
-						# if eval_reward_avg > best_eval_reward_avg:
+						if check_running and (running_avg-ini_eval_reward_avg) > 0 and eval_reward_avg > best_eval_reward_avg and running_std < self.running_std_thres:
+							best_eval_reward_avg = eval_reward_avg
+							best_itr = itr
+							save_cur = True
+
+						elif not check_running and eval_reward_avg > best_eval_reward_avg:
 							best_eval_reward_avg = eval_reward_avg
 							best_itr = itr
 							save_cur = True
