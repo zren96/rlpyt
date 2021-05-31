@@ -295,7 +295,7 @@ class MinibatchRlEval(MinibatchRlBase):
 
 	_eval = True
 
-	def train(self):
+	def train(self, return_buffer=False):
 		"""
 		Performs startup, evaluates the initial agent, then loops by
 		alternating between ``sampler.obtain_samples()`` and
@@ -377,7 +377,11 @@ class MinibatchRlEval(MinibatchRlBase):
 						logger.log(f'Average eval reward: {eval_reward_avg}')
 						print(f'Average eval reward at itr {itr}: {eval_reward_avg}')
 		self.shutdown()
-		return best_itr
+
+		if return_buffer:
+			return best_itr, self.agent.replay_buffer_dict()
+		else:
+			return best_itr
 
 		# Determine if saving the params
 		# pi_loss = opt_info.piLoss    
