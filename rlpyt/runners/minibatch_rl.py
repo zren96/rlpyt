@@ -379,7 +379,7 @@ class MinibatchRlEval(MinibatchRlBase):
 		self.shutdown()
 
 		if return_buffer:
-			return best_itr, self.agent.replay_buffer_dict()
+			return best_itr, self.algo.replay_buffer_dict()
 		else:
 			return best_itr
 
